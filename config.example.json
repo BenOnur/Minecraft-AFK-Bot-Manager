@@ -1,0 +1,49 @@
+{
+    "minecraft": {
+        "server": {
+            "host": "play.yourserver.com",
+            "port": 25565,
+            "version": "1.20.1"
+        },
+        "accounts": [
+            {
+                "slot": 1,
+                "username": "hesap1@email.com",
+                "auth": "microsoft"
+            },
+            {
+                "slot": 2,
+                "username": "hesap2@email.com",
+                "auth": "microsoft"
+            },
+            {
+                "slot": 3,
+                "username": "hesap3@email.com",
+                "auth": "microsoft"
+            }
+        ]
+    },
+    "telegram": {
+        "enabled": true,
+        "token": "YOUR_TELEGRAM_BOT_TOKEN_HERE",
+        "allowedUsers": [
+            123456789
+        ]
+    },
+    "discord": {
+        "enabled": true,
+        "token": "YOUR_DISCORD_BOT_TOKEN_HERE",
+        "allowedUsers": [
+            "987654321098765432"
+        ],
+        "guildId": "YOUR_GUILD_ID_HERE"
+    },
+    "settings": {
+        "autoReconnect": true,
+        "reconnectDelay": 5000,
+        "maxReconnectAttempts": 10,
+        "logLevel": "info",
+        "antiAfkEnabled": true,
+        "antiAfkInterval": 30000
+    }
+}

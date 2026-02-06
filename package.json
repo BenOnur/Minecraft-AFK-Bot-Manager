@@ -1,0 +1,27 @@
+{
+  "name": "minecraft-afk-bot",
+  "version": "1.0.0",
+  "description": "Multi-account Minecraft AFK bot with Telegram and Discord control",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "keywords": [
+    "minecraft",
+    "bot",
+    "afk",
+    "telegram",
+    "discord"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "mineflayer": "^4.20.1",
+    "telegraf": "^4.16.3",
+    "discord.js": "^14.14.1",
+    "winston": "^3.11.0",
+    "prismarine-auth": "^2.4.0"
+  }
+}
