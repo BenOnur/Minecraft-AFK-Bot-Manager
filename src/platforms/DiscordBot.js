@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, EmbedBuilder } from 'discord.js';
+import { Client, GatewayIntentBits, EmbedBuilder, Events } from 'discord.js';
 import { CommandHandler } from '../commands/CommandHandler.js';
 import { Auth } from '../utils/Auth.js';
 import logger from '../utils/Logger.js';
@@ -32,7 +32,7 @@ export class DiscordBot {
                 ]
             });
 
-            this.client.on('ready', () => {
+            this.client.on(Events.ClientReady, () => {
                 logger.info(`Discord bot logged in as ${this.client.user.tag}`);
             });
 
@@ -55,7 +55,7 @@ export class DiscordBot {
                 try {
                     // Send command with '/' prefix to maintain compatibility with CommandParser
                     const commandContent = '/' + message.content.substring(1);
-                    const result = await this.commandHandler.handleCommand(commandContent, 'discord');
+                    const result = await this.commandHandler.handleCommand(commandContent, 'discord', message.author);
                     await this.sendResponse(message, result);
                 } catch (error) {
                     logger.error(`Discord command error: ${error.message}`);

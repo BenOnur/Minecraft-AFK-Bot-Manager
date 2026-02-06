@@ -47,7 +47,15 @@ export class MinecraftBot {
                 username: this.accountConfig.username,
                 auth: this.accountConfig.auth || 'microsoft',
                 version: this.config.minecraft.server.version || false,
-                hideErrors: false
+                hideErrors: false,
+                profilesFolder: `./sessions/${this.accountConfig.username || 'temp_' + Date.now()}`,
+                onMsaCode: (data) => {
+                    if (this.accountConfig.onMsaCode) {
+                        this.accountConfig.onMsaCode(data);
+                    } else {
+                        logger.info(`Slot ${this.slot}: MSA Code: ${data.user_code} (Link: ${data.verification_uri})`);
+                    }
+                }
             };
 
             this.bot = mineflayer.createBot(botOptions);
@@ -193,11 +201,30 @@ export class MinecraftBot {
                 }
 
                 if (!entity.position) continue;
-                // entity.position works if bot has spawned
-                // bot.entity.position is the bot's position
                 if (!this.bot.entity) continue;
 
                 const distance = this.bot.entity.position.distanceTo(entity.position);
+
+                // EMERGENCY DISCONNECT CHECK
+                // Used defaults: emergencyDistance = 10 blocks
+                const emergencyDistance = this.config.settings.protection?.emergencyDistance || 10;
+
+                if (distance <= emergencyDistance && this.config.settings.protection?.enabled) {
+                    logger.error(`Slot ${this.slot}: 🚨 EMERGENCY: Player ${entity.username} is too close (${Math.round(distance)}m)! DISCONNECTING IMMEDIATELY! 🚨`);
+
+                    // Send alert before quitting
+                    const message = `🚨 **EMERGENCY DISCONNECT** 🚨\nSlot ${this.slot} detected **${entity.username}** at **${Math.round(distance)}** blocks! Exiting immediately!`;
+                    if (this.onProximityAlert) {
+                        this.onProximityAlert(entity.username, distance); // Basic alert callback
+                    }
+                    // Force generic alert (BotManager handles it)
+                    // Since we can't easily call botManager methods directly, we rely on the callback or just quitting.
+                    // The disconnect event might logicly handle reconnect, but for protection we might want to stay offline?
+                    // Current 'stop()' implementation sets isManuallyStopped=true which prevents auto-reconnect. Perfect.
+
+                    this.stop();
+                    return; // Stop processing other entities
+                }
 
                 if (distance <= alertDistance) {
                     const lastAlert = this.alertCooldowns.get(entity.username) || 0;
@@ -207,6 +234,7 @@ export class MinecraftBot {
 
                         // Trigger Spawner Protection if enabled
                         if (this.config.settings.protection && this.config.settings.protection.enabled) {
+                            // execProtection sends start msg
                             this.executeProtection();
                         }
 
@@ -270,12 +298,18 @@ export class MinecraftBot {
         this.bot.setControlState('sneak', true);
 
         for (const pos of blocks) {
+            // Safety check: if emergency disconnect happened, stop loop
+            if (!this.bot) return;
+
             const block = this.bot.blockAt(pos);
             if (!block) continue;
 
             try {
                 // Look at block
                 await this.bot.lookAt(pos);
+
+                // Safety check before digging
+                if (!this.bot) return;
 
                 // Dig
                 // Note: 'dig' automatically checks range, but we assume we are close enough based on 'findBlocks' radius

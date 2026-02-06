@@ -40,10 +40,10 @@ function validateConfig(config) {
     }
 
     if (!config.minecraft?.accounts || config.minecraft.accounts.length === 0) {
-        throw new Error('No Minecraft accounts configured');
+        logger.warn('No Minecraft accounts configured. Use /account add to set one up.');
+    } else {
+        logger.info(`Configured ${config.minecraft.accounts.length} Minecraft accounts`);
     }
-
-    logger.info(`Configured ${config.minecraft.accounts.length} Minecraft accounts`);
 }
 
 async function main() {

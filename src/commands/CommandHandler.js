@@ -6,7 +6,7 @@ export class CommandHandler {
         this.botManager = botManager;
     }
 
-    async handleCommand(commandText, platform = 'generic') {
+    async handleCommand(commandText, platform = 'generic', userId = null) {
         try {
             const parsed = CommandParser.parseCommand(commandText);
             const { command, args } = parsed;
@@ -24,8 +24,8 @@ export class CommandHandler {
                 case 'restart':
                 case 'reconnect':
                     return await this.handleRestart(args);
-                case 'reload':
-                    return await this.handleReload();
+                case 'account':
+                    return await this.handleAccount(args, platform, userId || parsed.userId);
                 case 'stop':
                 case 'disconnect':
                     return await this.handleStop(args);
@@ -168,9 +168,38 @@ export class CommandHandler {
         };
     }
 
-    async handleReload() {
-        this.botManager.reloadSystem(); // This will kill the process, so return immediately
-        return { success: true, message: '🔄 System reloading... See you on the other side!' };
+    async handleAccount(args, platform, userId) {
+        if (args.length === 0) {
+            return { success: false, message: 'Usage: /account <add|remove|list> [slot]' };
+        }
+
+        const action = args[0].toLowerCase();
+
+        if (action === 'add') {
+            return await this.botManager.addAccount(platform, userId);
+        } else if (action === 'remove') {
+            if (args.length < 2) return { success: false, message: 'Usage: /account remove <slot>' };
+            const slot = args[1];
+            return await this.botManager.removeAccount(slot);
+        } else if (action === 'list') {
+            const accounts = this.botManager.getAccountList();
+            if (accounts.length === 0) {
+                return { success: true, message: 'No accounts configured.' };
+            }
+
+            let message = '📋 **Configured Accounts:**\n';
+            accounts.forEach(acc => {
+                const statusEmoji = acc.status === 'online' ? '🟢' : (acc.status === 'offline' ? '⚫' : '🔴');
+                message += `${statusEmoji} Slot ${acc.slot}: **${acc.username}** (${acc.status})`;
+                if (acc.status === 'online' && acc.health) {
+                    message += ` [💗 ${Math.round(acc.health)} 🍗 ${Math.round(acc.food)}]`;
+                }
+                message += '\n';
+            });
+            return { success: true, message: message };
+        } else {
+            return { success: false, message: 'Unknown account action. Use add, remove or list.' };
+        }
     }
 
     // /stop 1
@@ -416,7 +445,9 @@ export class CommandHandler {
 /start <slot> - Start bot
 /stop <slot> - Stop bot
 /restart <slot|all> - Restart bot(s)
-/reload - Fully reload system
+/account add - Add new account
+/account remove <slot> - Remove account
+/account list - List accounts
 /pause <slot> - Pause bot
 /resume <slot> - Resume bot
 
@@ -461,7 +492,7 @@ export class CommandHandler {
                     },
                     {
                         name: '🎮 Bot Control',
-                        value: '`/start 1` - Start bot\n`/stop 1` - Stop bot\n`/restart 1` - Restart bot\n`/reload` - System Reload\n`/pause 1` - Pause bot\n`/resume 1` - Resume bot',
+                        value: '`/start 1` - Start bot\n`/stop 1` - Stop bot\n`/restart 1` - Restart bot\n`/account add` - Add Account\n`/account remove 1` - Remove Account\n`/account list` - List Accounts\n`/pause 1` - Pause bot\n`/resume 1` - Resume bot',
                         inline: false
                     },
                     {
@@ -500,7 +531,9 @@ export class CommandHandler {
 **Bot Control:**
 /restart 1 - Restart slot 1
 /stop 1 - Stop slot 1
-/reload - Fully reload system
+/account add - Add new account
+/account remove 1 - Remove account 1
+/account list - List accounts
 /start 1 - Start slot 1
 /pause 1 - Pause slot 1
 /resume 1 - Resume slot 1
@@ -521,4 +554,3 @@ export class CommandHandler {
         return { success: true, message: helpText };
     }
 }
-

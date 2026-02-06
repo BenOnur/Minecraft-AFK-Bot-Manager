@@ -1,5 +1,7 @@
 import { MinecraftBot } from './MinecraftBot.js';
-import { spawn } from 'child_process';
+import fs from 'fs/promises';
+import path from 'path';
+
 import logger from './utils/Logger.js';
 
 export class BotManager {
@@ -149,28 +151,212 @@ export class BotManager {
         }, 3000);
     }
 
-    async reloadSystem() {
-        logger.warn('SYSTEM RELOAD REQUESTED');
-        logger.info('Stopping all bots and services...');
+    async addAccount(platform, userId) {
+        // Find next available slot
+        const existingSlots = Array.from(this.bots.keys());
+        const newSlot = existingSlots.length > 0 ? Math.max(...existingSlots) + 1 : 1;
 
-        await this.stopAll();
-        if (this.telegramBot) await this.telegramBot.stop();
-        if (this.discordBot) await this.discordBot.stop();
+        logger.info(`Starting new account setup for slot ${newSlot}...`);
 
-        logger.info('Spawning new process...');
+        // Notify user about the process
+        const initMessage = `🚀 **Initializing New Account**\nSlot: ${newSlot}\nStatus: Waiting for Microsoft Auth...`;
+        this.sendPlatformMessage(platform, userId, initMessage);
 
-        // Spawn a new detached process
-        const child = spawn(process.argv[0], ['index.js'], {
-            detached: true,
-            stdio: 'ignore',
-            cwd: process.cwd()
+        const tempConfig = {
+            slot: newSlot,
+            username: `New_Account_${newSlot}`, // Temporary
+            auth: 'microsoft',
+            onMsaCode: (data) => {
+                const codeMessage = `🔐 **Microsoft Authentication Required**\n\n1. Go to: ${data.verification_uri}\n2. Enter Code: **${data.user_code}**\n\nThe bot will start automatically after login.`;
+                this.sendPlatformMessage(platform, userId, codeMessage);
+                logger.info(`[Slot ${newSlot}] Auth Code: ${data.user_code}`);
+            }
+        };
+
+        const bot = new MinecraftBot(this.config, tempConfig);
+
+        // Hook into login event to save config
+        const originalOnConnect = bot.onConnect;
+        bot.onConnect = async (host, version) => {
+            const username = bot.bot.username;
+            logger.info(`[Slot ${newSlot}] Successfully authenticated as ${username}`);
+
+            const successMessage = `✅ **Authentication Successful!**\nUser: **${username}**\nSlot: ${newSlot}\nAdded to configuration.`;
+            this.sendPlatformMessage(platform, userId, successMessage);
+
+            // Save to config
+            this.config.minecraft.accounts.push({
+                username: username,
+                auth: 'microsoft',
+                slot: newSlot
+            });
+            await this.saveConfig();
+
+            // STOP the temporary bot to release file locks on the session folder
+            await bot.stop();
+
+            // RENAME SESSION FOLDER to match real username
+            try {
+                // Give a small delay for file handles to close
+                await new Promise(resolve => setTimeout(resolve, 1000));
+
+                const oldPath = path.resolve(`./sessions/New_Account_${newSlot}`);
+                const newPath = path.resolve(`./sessions/${username}`);
+
+                // Remove existing folder if it conflicts
+                try {
+                    await fs.rm(newPath, { recursive: true, force: true });
+                } catch (e) { /* ignore */ }
+
+                await fs.rename(oldPath, newPath);
+                logger.info(`[Slot ${newSlot}] Renamed session folder to ${username}`);
+            } catch (err) {
+                logger.error(`[Slot ${newSlot}] Failed to rename session folder: ${err.message}`);
+            }
+
+            // CREATE NEW BOT INSTANCE with the correct config (pointing to the renamed folder)
+            // Retrieve the updated config object we just pushed
+            const realAccountConfig = this.config.minecraft.accounts.find(a => a.slot === newSlot);
+
+            const newBot = new MinecraftBot(this.config, realAccountConfig);
+
+            // Set callbacks for the new bot
+            newBot.onProximityAlert = (p, d) => this.handleProximityAlert(newSlot, p, d);
+            newBot.onConnect = (h, v) => this.handleConnect(newSlot, h, v);
+
+            // Register permanently in manager
+            this.bots.set(newSlot, newBot);
+
+            // Start the new bot (it should find the session now)
+            try {
+                await newBot.start();
+                this.handleConnect(newSlot, this.config.minecraft.server.host, this.config.minecraft.server.version); // Fallback notification
+            } catch (e) {
+                logger.error(`Failed to restart bot with new session: ${e.message}`);
+                this.sendPlatformMessage(platform, userId, `❌ Failed to restart with saved session: ${e.message}`);
+            }
+        };
+
+        this.bots.set(newSlot, bot);
+
+        try {
+            await bot.start();
+            return { success: true, message: `Auth process started for slot ${newSlot}` };
+        } catch (error) {
+            this.bots.delete(newSlot);
+            return { success: false, message: `Failed to start auth process: ${error.message}` };
+        }
+    }
+
+    async removeAccount(slot) {
+        const slotNum = parseInt(slot);
+        if (!this.bots.has(slotNum)) {
+            return { success: false, message: `Slot ${slotNum} not found.` };
+        }
+
+        logger.info(`Removing account from slot ${slotNum}...`);
+
+        // Stop the bot to be removed
+        const botToRemove = this.bots.get(slotNum);
+        await botToRemove.stop();
+        this.bots.delete(slotNum);
+
+        // Remove from config array
+        const initialLength = this.config.minecraft.accounts.length;
+        this.config.minecraft.accounts = this.config.minecraft.accounts.filter(acc => acc.slot !== slotNum);
+
+        if (this.config.minecraft.accounts.length === initialLength) {
+            logger.warn(`Slot ${slotNum} was running but not found in config file?`);
+        }
+
+        // Reorder slots for remaining bots
+        // We need to shift any bot with slot > slotNum down by 1
+        let shiftedCount = 0;
+
+        // We need to process strictly in ascending order to avoid conflicts if we were just moving pointers, 
+        // but here we are changing properties. Safe to iterate.
+
+        // Deep copy or direct mutation? We need to mutate the config objects.
+        // Also update the KEY in the map.
+
+        // 1. Identify bots that need shifting
+        const botsToShift = [];
+        this.bots.forEach(bot => {
+            if (bot.slot > slotNum) {
+                botsToShift.push(bot);
+            }
         });
 
-        child.unref();
+        // 2. Sort them ascending so we shift 2->1, then 3->2 (if we were sequential). 
+        // Actually order doesn't matter for the Map deletion/insertion if we do it carefully.
+        botsToShift.sort((a, b) => a.slot - b.slot);
 
-        logger.info('Exiting current process...');
-        process.exit(0);
+        for (const bot of botsToShift) {
+            const oldSlot = bot.slot;
+            const newSlot = oldSlot - 1;
+
+            // Update Config
+            const configAcc = this.config.minecraft.accounts.find(a => a.slot === oldSlot);
+            if (configAcc) {
+                configAcc.slot = newSlot;
+            }
+
+            // Update Map
+            this.bots.delete(oldSlot);
+            bot.slot = newSlot;
+            bot.accountConfig.slot = newSlot;
+            this.bots.set(newSlot, bot);
+
+            logger.info(`Shifted bot ${bot.accountConfig.username} from slot ${oldSlot} to ${newSlot}`);
+            shiftedCount++;
+        }
+
+        await this.saveConfig();
+
+        let message = `Account in slot ${slotNum} removed.`;
+        if (shiftedCount > 0) {
+            message += ` ${shiftedCount} subsequent account(s) shifted down.`;
+        }
+
+        return { success: true, message: message };
     }
+
+    getAccountList() {
+        if (!this.config.minecraft.accounts || this.config.minecraft.accounts.length === 0) {
+            return [];
+        }
+
+        // Sort by slot
+        const accounts = [...this.config.minecraft.accounts].sort((a, b) => a.slot - b.slot);
+
+        return accounts.map(acc => {
+            const bot = this.bots.get(acc.slot);
+            return {
+                slot: acc.slot,
+                username: acc.username,
+                status: bot ? bot.status : 'stopped'
+            };
+        });
+    }
+
+    sendPlatformMessage(platform, userId, message) {
+        if (platform === 'telegram' && this.telegramBot?.bot) {
+            this.telegramBot.bot.telegram.sendMessage(userId, message, { parse_mode: 'Markdown' }).catch(e => logger.error(`TG Send Error: ${e.message}`));
+        } else if (platform === 'discord' && this.discordBot) {
+            // Assuming DiscordBot has a method to send DM or channel message, 
+            // for now we might route via a generic alert if specific user DM isn't implemented.
+            // But usually commands come from a context. 
+            // Since we need to reply to a specific user/channel:
+            if (userId && typeof userId.send === 'function') {
+                userId.send(message).catch(e => logger.error(`DS Send Error: ${e.message}`));
+            } else {
+                this.discordBot.sendAlert(message); // Fallback to alert channel
+            }
+        } else {
+            logger.info(`[Config Action] ${message}`);
+        }
+    }
+
 
     sendMessage(slots, message) {
         const results = [];

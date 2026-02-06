@@ -50,7 +50,7 @@ export class TelegramBot {
                 logger.info(`Telegram command from ${ctx.from.username}: ${text}`);
 
                 try {
-                    const result = await this.commandHandler.handleCommand(text, 'telegram');
+                    const result = await this.commandHandler.handleCommand(text, 'telegram', ctx.from.id);
                     await this.sendResponse(ctx, result);
                 } catch (error) {
                     logger.error(`Telegram command error: ${error.message}`);
@@ -62,13 +62,17 @@ export class TelegramBot {
             logger.info('Launching Telegram bot...');
 
             const launchPromise = this.bot.launch();
-            const timeoutPromise = new Promise((_, reject) =>
-                setTimeout(() => reject(new Error('Telegram launch timed out')), 3000)
-            );
 
-            await Promise.race([launchPromise, timeoutPromise]);
+            // Handle launch result in background
+            launchPromise.then(() => {
+                logger.info('Telegram bot connected and polling!');
+            }).catch(err => {
+                logger.error(`Telegram launch failed: ${err.message}`);
+                // Retry logic could be added here
+            });
 
-            logger.info('Telegram bot started successfully');
+
+            logger.info('Telegram bot launch initiated (background)...');
 
             // Enable graceful stop
             process.once('SIGINT', () => this.bot.stop('SIGINT'));
