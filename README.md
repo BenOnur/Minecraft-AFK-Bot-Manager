@@ -130,82 +130,62 @@ npm start
 ### Yardım
 - `/help` - Tüm komutları göster
 
-## 🖥️ VDS'e Kurulum (Ubuntu)
+## 🖥️ VDS'e Kurulum (Ubuntu 20.04+)
 
-### 1. Sunucuya Bağlan
+### 1. Sunucuya Bağlan ve Güncelle
 
 ```bash
+# Sunucunuza SSH ile bağlanın
 ssh root@your-vds-ip
+
+# Sistemi güncelleyin ve gerekli araçları kurun
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y curl git build-essential
 ```
 
-### 2. Node.js Kur
+### 2. Node.js v22 Kurulumu
 
 ```bash
-curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
-sudo apt-get install -y nodejs
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt install -y nodejs
 ```
 
-### 3. PM2 Kur
+### 3. PM2 ve Proje Kurulumu
 
 ```bash
+# PM2 Kur
 sudo npm install -g pm2
+
+# Projeyi İndir
+git clone https://github.com/BenOnur/Minecraft-AFK-Bot-Manager.git
+cd Minecraft-AFK-Bot-Manager
+
+# Bağımlılıkları Yükle
+npm install
 ```
 
-### 4. Projeyi Yükle
+### 4. Config Ayarları
 
 ```bash
-mkdir -p /home/minecraft-bot
-cd /home/minecraft-bot
-
-# Dosyaları SFTP ile yükle veya git clone kullan
-```
-
-### 5. Bağımlılıkları Yükle
-
-```bash
-npm install --production
-```
-
-### 6. Config Ayarla
-
-```bash
+# Config dosyasını oluştur
 nano config.json
-# Gerekli ayarları yap
+
+# (Bilgisayarınızdaki config.json içeriğini buraya yapıştırın ve kaydedin: CTRL+X -> Y -> Enter)
 ```
 
-### 7. PM2 ile Başlat
+### 5. Botu Başlat
 
 ```bash
-pm2 start index.js --name minecraft-bot --max-memory-restart 2G
-pm2 save
+# Botu başlat
+pm2 start index.js --name "afk-bot"
+
+# Logları izle
+pm2 logs
+
+# Başlangıçta otomatik açılması için (Çıkan komutu uygulayın)
 pm2 startup
+pm2 save
 ```
-
-### 8. Logları İzle
-
-```bash
-pm2 logs minecraft-bot
-```
-
-## 🔧 PM2 Komutları
-
-```bash
-pm2 status              # Durum
-pm2 logs minecraft-bot  # Loglar
-pm2 restart minecraft-bot  # Yeniden başlat
-pm2 stop minecraft-bot  # Durdur
-pm2 start minecraft-bot # Başlat
-pm2 monit              # Monitoring
-```
-
-## 📊 Kaynak Kullanımı
-
-| Bot Sayısı | RAM Kullanımı | CPU | Tavsiye VDS |
-|------------|---------------|-----|-------------|
-| 1-3        | 512MB-1GB     | 1 vCore | Vultr $2.50/ay |
-| 4-6        | 1-2GB         | 1-2 vCore | Contabo €4.99/ay |
-| 7-10       | 2-3GB         | 2 vCore | Contabo €4.99/ay |
-| 10+        | 3-4GB         | 2 vCore | Contabo €4.99/ay |
 
 ## 🔐 Güvenlik
 
