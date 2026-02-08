@@ -9,7 +9,15 @@ export class DiscordBot {
         this.botManager = botManager;
         this.commandHandler = new CommandHandler(botManager);
         this.auth = new Auth(config);
+
         this.client = null;
+
+        // Log streaming state
+        this.isLogStreaming = false;
+        this.logStreamChannelId = null;
+        this.logBuffer = [];
+        this.logFlushInterval = null;
+        this.logCallback = this.handleLog.bind(this);
     }
 
     async start() {
@@ -39,6 +47,23 @@ export class DiscordBot {
             this.client.on('messageCreate', async (message) => {
                 // Ignore bot messages
                 if (message.author.bot) return;
+
+                // Handle !logs command specifically
+                if (message.content === '!logs') {
+                    if (!this.auth.isDiscordUserAuthorized(message.author.id, message.guildId)) {
+                        return;
+                    }
+
+                    if (this.isLogStreaming) {
+                        this.stopLogStream();
+                        await message.reply('🛑 Log streaming stopped.');
+                    } else {
+                        // Use current channel
+                        this.startLogStream(message.channel.id);
+                        await message.reply('▶️ Log streaming started in this channel.');
+                    }
+                    return;
+                }
 
                 // Only process commands
                 if (!message.content.startsWith('!')) return;
@@ -210,12 +235,67 @@ export class DiscordBot {
             try {
                 const user = await this.client.users.fetch(userId);
                 if (user) {
-                    await user.send(message);
+                    // Prepend mention to the message content for notifications
+                    // Note: sending to user DM vs channel. 
+                    // If user wants to be "tagged", it implies a channel context usually, 
+                    // but in DM a mention is just highlighting. 
+                    // However, if the user requested "notifications 5 times... make it tag me",
+                    // they likely mean they want the visual cue of a mention.
+                    await user.send(`<@${userId}>\n${message}`);
                 }
             } catch (error) {
                 logger.error(`Failed to send alert to Discord user ${userId}: ${error.message}`);
             }
         }
+    }
+
+    handleLog(message) {
+        if (!this.isLogStreaming || !this.logStreamChannelId) return;
+        this.logBuffer.push(message);
+    }
+
+    async startLogStream(channelId) {
+        this.isLogStreaming = true;
+        this.logStreamChannelId = channelId;
+        this.logBuffer = [];
+
+        logger.addStream(this.logCallback);
+
+        this.logFlushInterval = setInterval(async () => {
+            if (this.logBuffer.length > 0 && this.client) {
+                const logsToSend = this.logBuffer.join('\n');
+                this.logBuffer = [];
+
+                try {
+                    const channel = await this.client.channels.fetch(this.logStreamChannelId);
+                    if (!channel) {
+                        this.stopLogStream();
+                        return;
+                    }
+
+                    const chunks = logsToSend.match(/[\s\S]{1,1900}/g) || [];
+                    for (const chunk of chunks) {
+                        await channel.send(`\`\`\`\n${chunk}\n\`\`\``);
+                    }
+                } catch (error) {
+                    console.error('Failed to send log chunk to Discord:', error.message);
+                    this.stopLogStream();
+                }
+            }
+        }, 2000);
+    }
+
+    stopLogStream() {
+        this.isLogStreaming = false;
+        this.logStreamChannelId = null;
+        this.logBuffer = [];
+
+        if (this.logFlushInterval) {
+            clearInterval(this.logFlushInterval);
+            this.logFlushInterval = null;
+        }
+
+        logger.removeStream(this.logCallback);
     }
 
     async stop() {
