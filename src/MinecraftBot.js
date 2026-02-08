@@ -14,7 +14,7 @@ export class MinecraftBot {
         this.reconnectAttempts = 0;
         this.antiAfkInterval = null;
         this.proximityInterval = null;
-        this.autoEatInterval = null;
+        this.autoEatTimeout = null;
         this.alertCooldowns = new Map(); // username -> lastAlertTime
         this.onProximityAlert = null; // Callback function
         this.tempReconnectDelay = null; // Temporary override for reconnect delay
@@ -144,11 +144,15 @@ export class MinecraftBot {
         }, interval);
     }
 
-    startAutoEat() {
+    async startAutoEat() {
         const checkInterval = 5000; // Check every 5 seconds
 
-        this.autoEatInterval = setInterval(async () => {
-            if (!this.bot || this.status !== 'online' || this.isPaused) return;
+        const checkFood = async () => {
+            if (!this.bot || this.status !== 'online' || this.isPaused) {
+                // If bot is not ready, check again later
+                this.autoEatTimeout = setTimeout(checkFood, checkInterval);
+                return;
+            }
 
             try {
                 const food = this.bot.food;
@@ -178,13 +182,22 @@ export class MinecraftBot {
                         await this.bot.consume();
                         logger.info(`Slot ${this.slot}: Ate ${foodItem.name} (food: ${food} -> ${this.bot.food})`);
                     } else {
+                        // Only warn if *really* hungry (e.g. < 6) or just once in a while? 
+                        // Current logic warns every check if < 14 and no food. Maybe too spammy if inventory empty?
+                        // Let's keep it as is for now, user didn't complain about "no food" spam, just "Promise timed out".
                         logger.warn(`Slot ${this.slot}: Hungry (food: ${food}) but no food in inventory!`);
                     }
                 }
             } catch (error) {
                 logger.error(`Slot ${this.slot}: Auto-eat error: ${error.message}`);
+            } finally {
+                // Schedule next check ONLY after this one finishes
+                this.autoEatTimeout = setTimeout(checkFood, checkInterval);
             }
-        }, checkInterval);
+        };
+
+        // Start the loop
+        this.autoEatTimeout = setTimeout(checkFood, checkInterval);
     }
 
     startProximityCheck() {
@@ -547,9 +560,9 @@ export class MinecraftBot {
             clearInterval(this.proximityInterval);
             this.proximityInterval = null;
         }
-        if (this.autoEatInterval) {
-            clearInterval(this.autoEatInterval);
-            this.autoEatInterval = null;
+        if (this.autoEatTimeout) {
+            clearTimeout(this.autoEatTimeout);
+            this.autoEatTimeout = null;
         }
 
         this.bot = null;
