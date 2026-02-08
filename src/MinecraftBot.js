@@ -148,6 +148,8 @@ export class MinecraftBot {
         const checkInterval = 5000; // Check every 5 seconds
 
         const checkFood = async () => {
+            let nextDelay = checkInterval;
+
             if (!this.bot || this.status !== 'online' || this.isPaused) {
                 // If bot is not ready, check again later
                 this.autoEatTimeout = setTimeout(checkFood, checkInterval);
@@ -189,10 +191,16 @@ export class MinecraftBot {
                     }
                 }
             } catch (error) {
-                logger.error(`Slot ${this.slot}: Auto-eat error: ${error.message}`);
+                if (error.message.includes('Promise timed out')) {
+                    logger.warn(`Slot ${this.slot}: Auto-eat timed out. Retrying in 30s.`);
+                    nextDelay = 30000;
+                } else {
+                    logger.error(`Slot ${this.slot}: Auto-eat error: ${error.message}`);
+                    nextDelay = 10000; // Backoff for other errors to prevent spam
+                }
             } finally {
                 // Schedule next check ONLY after this one finishes
-                this.autoEatTimeout = setTimeout(checkFood, checkInterval);
+                this.autoEatTimeout = setTimeout(checkFood, nextDelay);
             }
         };
 
