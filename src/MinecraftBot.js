@@ -17,6 +17,7 @@ export class MinecraftBot {
         this.autoEatInterval = null;
         this.alertCooldowns = new Map(); // username -> lastAlertTime
         this.onProximityAlert = null; // Callback function
+        this.tempReconnectDelay = null; // Temporary override for reconnect delay
     }
 
     async start() {
@@ -107,8 +108,15 @@ export class MinecraftBot {
 
         this.bot.on('kicked', (reason) => {
             this.isConnecting = false;
-            logger.warn(`Slot ${this.slot}: Kicked from server: ${reason}`);
+            logger.warn(`Slot ${this.slot}: Kicked from reason: ${reason}`);
             this.status = 'kicked';
+
+            // Check for "already online" message
+            const reasonStr = typeof reason === 'string' ? reason : JSON.stringify(reason);
+            if (reasonStr.includes('already online') || reasonStr.includes('already connected')) {
+                logger.warn(`Slot ${this.slot}: Detected 'already online' error. Waiting 6s before reconnect.`);
+                this.tempReconnectDelay = 6000;
+            }
         });
 
         this.bot.on('error', (error) => {
@@ -118,7 +126,7 @@ export class MinecraftBot {
         });
 
         this.bot.on('messagestr', (message) => {
-            logger.debug(`Slot ${this.slot}: Chat: ${message}`);
+            logger.info(`Slot ${this.slot}: Chat: ${message}`);
         });
     }
 
@@ -345,7 +353,10 @@ export class MinecraftBot {
         }
 
         this.reconnectAttempts++;
-        const delay = this.config.settings.reconnectDelay || 5000;
+        const delay = this.tempReconnectDelay || this.config.settings.reconnectDelay || 5000;
+
+        // Reset temp delay after use
+        this.tempReconnectDelay = null;
 
         logger.info(`Slot ${this.slot}: Reconnecting in ${delay / 1000}s (attempt ${this.reconnectAttempts}/${this.config.settings.maxReconnectAttempts})`);
 

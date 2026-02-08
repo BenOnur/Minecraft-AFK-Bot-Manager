@@ -83,8 +83,8 @@ async function main() {
         botManager.setPlatformBots(telegramBot, discordBot);
 
         // Start all Minecraft bots
-        // logger.info('Starting all Minecraft bots...');
-        // await botManager.startAll();
+        logger.info('Starting all Minecraft bots...');
+        await botManager.startAll();
         logger.info('Bots initialization complete. Use /start <slot> to connect.');
 
         logger.info('='.repeat(50));
