@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { BotManager } from './src/BotManager.js';
+import { CommandHandler } from './src/commands/CommandHandler.js';
 import { TelegramBot } from './src/platforms/TelegramBot.js';
 import { DiscordBot } from './src/platforms/DiscordBot.js';
 import logger from './src/utils/Logger.js';
@@ -58,6 +59,7 @@ async function main() {
         // Initialize Bot Manager
         const botManager = new BotManager(config);
         await botManager.initialize();
+        const commandHandler = new CommandHandler(botManager);
 
         // Start Telegram Bot
         logger.info('Starting Telegram Bot...');
@@ -107,7 +109,7 @@ async function main() {
             }
 
             try {
-                const result = await botManager.commandHandler.handleCommand(command, 'console', null);
+                const result = await commandHandler.handleCommand(command, 'console', null);
                 if (result.success) {
                     logger.info(`✅ ${result.message}`);
                     if (result.data) logger.info(JSON.stringify(result.data, null, 2));
