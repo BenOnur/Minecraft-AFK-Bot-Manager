@@ -127,20 +127,7 @@ export class MinecraftBot {
                 const distToHome = this.lastPosition.distanceTo(currentPos);
 
                 if (distToHome < 50) {
-                    logger.info(`Slot ${this.slot}: ✅ Returned from lobby! Resuming normal operation.`);
-                    this.isInLobby = false;
-                    this.stopLobbyRetry();
-
-                    if (this.onLobbyDetected) {
-                        this.onLobbyDetected(false);
-                    }
-
-                    if (this.config.settings.antiAfkEnabled) {
-                        this.startAntiAfk();
-                    }
-                    if (this.config.settings.proximityAlertEnabled) {
-                        this.startProximityCheck();
-                    }
+                    this.exitLobbyMode();
                 }
             }
 
@@ -183,9 +170,22 @@ export class MinecraftBot {
 
             // Detect teleportation via chat (e.g., server /spawn, /warp)
             const msg = message.toLowerCase();
-            if ((msg.includes('teleported') || msg.includes('ışınlandı')) && !this.isInLobby) {
-                logger.warn(`Slot ${this.slot}: 🏢 TELEPORT DETECTED via chat: "${message}". Entering lobby mode.`);
-                this.enterLobbyMode();
+            if (msg.includes('teleported') || msg.includes('ışınlandı')) {
+                if (!this.isInLobby) {
+                    // Teleported AWAY from home → enter lobby mode
+                    logger.warn(`Slot ${this.slot}: 🏢 TELEPORT DETECTED via chat: "${message}". Entering lobby mode.`);
+                    this.enterLobbyMode();
+                } else {
+                    // Already in lobby → might be returning home via /home sp1
+                    setTimeout(() => {
+                        if (this.bot && this.bot.entity && this.lastPosition && this.isInLobby) {
+                            const dist = this.bot.entity.position.distanceTo(this.lastPosition);
+                            if (dist < 50) {
+                                this.exitLobbyMode();
+                            }
+                        }
+                    }, 1500);
+                }
             }
         });
     }
@@ -210,6 +210,23 @@ export class MinecraftBot {
 
         // Start retry loop to return home
         this.startLobbyRetry();
+    }
+
+    exitLobbyMode() {
+        logger.info(`Slot ${this.slot}: ✅ Returned from lobby! Resuming normal operation.`);
+        this.isInLobby = false;
+        this.stopLobbyRetry();
+
+        if (this.onLobbyDetected) {
+            this.onLobbyDetected(false);
+        }
+
+        if (this.config.settings.antiAfkEnabled) {
+            this.startAntiAfk();
+        }
+        if (this.config.settings.proximityAlertEnabled) {
+            this.startProximityCheck();
+        }
     }
 
     startAntiAfk() {
