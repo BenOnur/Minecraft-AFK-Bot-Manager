@@ -301,6 +301,18 @@ export class MinecraftBot {
 
                 const distance = this.bot.entity.position.distanceTo(entity.position);
 
+                // Emergency disconnect: player within 10 blocks → disconnect to save inventory
+                const emergencyDistance = this.config.settings.protection?.emergencyDistance || 10;
+                if (distance <= emergencyDistance) {
+                    logger.error(`Slot ${this.slot}: 🚨 EMERGENCY: ${entity.username} at ${Math.round(distance)}m! DISCONNECTING to save inventory! 🚨`);
+                    if (this.onProximityAlert) {
+                        this.onProximityAlert(entity.username, distance);
+                    }
+                    this._protectionRunning = false;
+                    this.stop();
+                    return;
+                }
+
                 if (distance <= alertDistance) {
                     const lastAlert = this.alertCooldowns.get(entity.username) || 0;
 
@@ -323,6 +335,22 @@ export class MinecraftBot {
                 }
             }
         }, 1000);
+    }
+
+    isEnemyNearby() {
+        if (!this.bot || !this.bot.entity) return false;
+        const emergencyDistance = this.config.settings.protection?.emergencyDistance || 10;
+
+        for (const id in this.bot.entities) {
+            const entity = this.bot.entities[id];
+            if (entity.type !== 'player' || entity.username === this.accountConfig.username) continue;
+            if (this._cachedWhitelist.includes(entity.username.toLowerCase())) continue;
+            if (!entity.position) continue;
+
+            const dist = this.bot.entity.position.distanceTo(entity.position);
+            if (dist <= emergencyDistance) return true;
+        }
+        return false;
     }
 
     async executeProtection() {
@@ -378,6 +406,14 @@ export class MinecraftBot {
 
             for (const pos of blocks) {
                 if (!this.bot) { this._protectionRunning = false; return; }
+
+                // Emergency: check if any enemy is within 10 blocks
+                if (this.isEnemyNearby()) {
+                    logger.error(`Slot ${this.slot}: 🚨 Enemy too close while breaking! EMERGENCY DISCONNECT! 🚨`);
+                    this._protectionRunning = false;
+                    this.stop();
+                    return;
+                }
 
                 // Re-check inventory before each break
                 if (this.bot.inventory.emptySlotCount() <= 0) {
