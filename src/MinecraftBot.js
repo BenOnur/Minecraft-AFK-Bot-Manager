@@ -301,20 +301,6 @@ export class MinecraftBot {
 
                 const distance = this.bot.entity.position.distanceTo(entity.position);
 
-                // Emergency disconnect check
-                const emergencyDistance = this.config.settings.protection?.emergencyDistance || 10;
-
-                if (distance <= emergencyDistance && this.protectionEnabled) {
-                    logger.error(`Slot ${this.slot}: 🚨 EMERGENCY: ${entity.username} at ${Math.round(distance)}m! DISCONNECTING! 🚨`);
-
-                    if (this.onProximityAlert) {
-                        this.onProximityAlert(entity.username, distance);
-                    }
-
-                    this.stop();
-                    return;
-                }
-
                 if (distance <= alertDistance) {
                     const lastAlert = this.alertCooldowns.get(entity.username) || 0;
 
@@ -341,6 +327,8 @@ export class MinecraftBot {
 
     async executeProtection() {
         if (!this.bot || this.status !== 'online') return;
+        if (this._protectionRunning) return; // Prevent multiple concurrent runs
+        this._protectionRunning = true;
 
         logger.warn(`Slot ${this.slot}: 🛡️ INITIATING SPAWNER PROTECTION PROTOCOL 🛡️`);
 
@@ -348,20 +336,7 @@ export class MinecraftBot {
         const radius = this.config.settings.protection.radius || 5;
         const breakDelay = this.config.settings.protection.breakDelay || 1500;
 
-        const blocks = this.bot.findBlocks({
-            matching: (block) => block.name === blockName,
-            maxDistance: radius,
-            count: 100
-        });
-
-        if (blocks.length === 0) {
-            logger.info(`Slot ${this.slot}: No ${blockName} found. Disconnecting for safety.`);
-            this.stop();
-            return;
-        }
-
-        logger.info(`Slot ${this.slot}: Found ${blocks.length} ${blockName}(s). Starting destruction.`);
-
+        // Equip pickaxe
         const pickaxe = this.bot.inventory.items().find(item => item.name.includes('pickaxe'));
         if (pickaxe) {
             try {
@@ -376,29 +351,67 @@ export class MinecraftBot {
 
         this.bot.setControlState('sneak', true);
 
-        for (const pos of blocks) {
-            if (!this.bot) return;
+        let totalBroken = 0;
 
-            const block = this.bot.blockAt(pos);
-            if (!block) continue;
-
-            try {
-                await this.bot.lookAt(pos);
-                if (!this.bot) return;
-
-                logger.info(`Slot ${this.slot}: Breaking ${block.name} at ${pos}`);
-                await this.bot.dig(block);
-                logger.info(`Slot ${this.slot}: Broken ${block.name}`);
-
-                await new Promise(resolve => setTimeout(resolve, breakDelay));
-            } catch (err) {
-                logger.error(`Slot ${this.slot}: Failed to break block at ${pos}: ${err.message}`);
+        // Loop: keep scanning and breaking until no spawners remain or inventory full
+        while (this.bot && this.status === 'online') {
+            // Check inventory fullness (36 slots total, if empty slots <= 0 it's full)
+            const emptySlots = this.bot.inventory.emptySlotCount();
+            if (emptySlots <= 0) {
+                logger.warn(`Slot ${this.slot}: 📦 Inventory FULL! Stopping protection and disconnecting.`);
+                break;
             }
+
+            // Scan for spawners
+            const blocks = this.bot.findBlocks({
+                matching: (block) => block.name === blockName,
+                maxDistance: radius,
+                count: 100
+            });
+
+            if (blocks.length === 0) {
+                logger.info(`Slot ${this.slot}: ✅ All ${blockName}s destroyed (${totalBroken} total). Disconnecting.`);
+                break;
+            }
+
+            logger.info(`Slot ${this.slot}: Found ${blocks.length} ${blockName}(s) remaining. Breaking...`);
+
+            for (const pos of blocks) {
+                if (!this.bot) { this._protectionRunning = false; return; }
+
+                // Re-check inventory before each break
+                if (this.bot.inventory.emptySlotCount() <= 0) {
+                    logger.warn(`Slot ${this.slot}: 📦 Inventory FULL mid-break! Stopping.`);
+                    break;
+                }
+
+                const block = this.bot.blockAt(pos);
+                if (!block || block.name !== blockName) continue;
+
+                try {
+                    await this.bot.lookAt(pos);
+                    if (!this.bot) { this._protectionRunning = false; return; }
+
+                    logger.info(`Slot ${this.slot}: Breaking ${block.name} at ${pos}`);
+                    await this.bot.dig(block);
+                    totalBroken++;
+                    logger.info(`Slot ${this.slot}: Broken ${block.name} (${totalBroken} total)`);
+
+                    await new Promise(resolve => setTimeout(resolve, breakDelay));
+                } catch (err) {
+                    logger.error(`Slot ${this.slot}: Failed to break block at ${pos}: ${err.message}`);
+                }
+            }
+
+            // Small delay before re-scanning
+            await new Promise(resolve => setTimeout(resolve, 500));
         }
 
-        this.bot.setControlState('sneak', false);
+        if (this.bot) {
+            this.bot.setControlState('sneak', false);
+        }
         logger.info(`Slot ${this.slot}: Protection protocol complete. Disconnecting.`);
-
+        this._protectionRunning = false;
         this.stop();
     }
 
