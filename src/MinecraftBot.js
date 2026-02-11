@@ -1,6 +1,18 @@
 import mineflayer from 'mineflayer';
 import logger from './utils/Logger.js';
 
+const FOOD_ITEMS = new Set([
+    'bread', 'cooked_beef', 'cooked_porkchop', 'cooked_chicken',
+    'cooked_mutton', 'cooked_rabbit', 'cooked_cod', 'cooked_salmon',
+    'golden_apple', 'apple', 'golden_carrot', 'carrot',
+    'baked_potato', 'beetroot', 'melon_slice', 'cookie',
+    'beef', 'porkchop', 'chicken', 'mutton', 'rabbit',
+    'cod', 'salmon', 'potato', 'beetroot_soup',
+    'mushroom_stew', 'rabbit_stew', 'suspicious_stew',
+    'sweet_berries', 'glow_berries', 'dried_kelp',
+    'pumpkin_pie', 'honey_bottle'
+]);
+
 export class MinecraftBot {
     constructor(config, accountConfig) {
         this.config = config;
@@ -16,8 +28,16 @@ export class MinecraftBot {
         this.proximityInterval = null;
         this.autoEatTimeout = null;
         this.alertCooldowns = new Map(); // username -> lastAlertTime
-        this.onProximityAlert = null; // Callback function
-        this.tempReconnectDelay = null; // Temporary override for reconnect delay
+        this.onProximityAlert = null;
+        this.onLobbyDetected = null;
+        this.tempReconnectDelay = null;
+        this.protectionEnabled = this.config.settings.protection?.enabled || false;
+        this.lastPosition = null;
+        this.isInLobby = false;
+        this.lobbyRetryInterval = null;
+
+        // Cache lowercased whitelist for O(1) proximity checks
+        this._cachedWhitelist = (this.config.settings.alertWhitelist || []).map(u => u.toLowerCase());
     }
 
     async start() {
@@ -94,6 +114,61 @@ export class MinecraftBot {
 
         this.bot.on('spawn', () => {
             logger.info(`Slot ${this.slot}: Spawned in game`);
+
+            // Lobby/maintenance detection: if bot was online and position changed drastically
+            if (this.lastPosition && this.bot && this.bot.entity) {
+                const currentPos = this.bot.entity.position;
+                const distance = this.lastPosition.distanceTo(currentPos);
+
+                if (distance > 200) {
+                    logger.warn(`Slot ${this.slot}: 🏢 LOBBY DETECTED! Teleported ${Math.round(distance)} blocks. Likely server maintenance.`);
+                    this.isInLobby = true;
+
+                    // Stop proximity and anti-afk (not needed in lobby)
+                    if (this.proximityInterval) {
+                        clearInterval(this.proximityInterval);
+                        this.proximityInterval = null;
+                    }
+                    if (this.antiAfkInterval) {
+                        clearInterval(this.antiAfkInterval);
+                        this.antiAfkInterval = null;
+                    }
+
+                    // Notify via callback
+                    if (this.onLobbyDetected) {
+                        this.onLobbyDetected(true);
+                    }
+
+                    // Start retry loop to return
+                    this.startLobbyRetry();
+                    return;
+                }
+            }
+
+            // If returning from lobby successfully
+            if (this.isInLobby && this.bot && this.bot.entity) {
+                logger.info(`Slot ${this.slot}: ✅ Returned from lobby! Resuming normal operation.`);
+                this.isInLobby = false;
+                this.stopLobbyRetry();
+
+                // Notify via callback
+                if (this.onLobbyDetected) {
+                    this.onLobbyDetected(false);
+                }
+
+                // Restart systems
+                if (this.config.settings.antiAfkEnabled) {
+                    this.startAntiAfk();
+                }
+                if (this.config.settings.proximityAlertEnabled) {
+                    this.startProximityCheck();
+                }
+            }
+
+            // Save position for future lobby detection
+            if (this.bot && this.bot.entity) {
+                this.lastPosition = this.bot.entity.position.clone();
+            }
         });
 
         this.bot.on('end', () => {
@@ -145,13 +220,12 @@ export class MinecraftBot {
     }
 
     async startAutoEat() {
-        const checkInterval = 5000; // Check every 5 seconds
+        const checkInterval = 5000;
 
         const checkFood = async () => {
             let nextDelay = checkInterval;
 
             if (!this.bot || this.status !== 'online' || this.isPaused) {
-                // If bot is not ready, check again later
                 this.autoEatTimeout = setTimeout(checkFood, checkInterval);
                 return;
             }
@@ -159,24 +233,9 @@ export class MinecraftBot {
             try {
                 const food = this.bot.food;
 
-                // Start eating when food level drops below 14 (7 shanks)
                 if (food < 14) {
                     const foodItem = this.bot.inventory.items().find(item =>
-                        item.name.includes('bread') ||
-                        item.name.includes('beef') ||
-                        item.name.includes('porkchop') ||
-                        item.name.includes('chicken') ||
-                        item.name.includes('mutton') ||
-                        item.name.includes('rabbit') ||
-                        item.name.includes('cod') ||
-                        item.name.includes('salmon') ||
-                        item.name.includes('apple') ||
-                        item.name.includes('carrot') ||
-                        item.name.includes('potato') ||
-                        item.name.includes('beetroot') ||
-                        item.name.includes('melon') ||
-                        item.name.includes('cookie') ||
-                        item.name.includes('steak')
+                        FOOD_ITEMS.has(item.name)
                     );
 
                     if (foodItem) {
@@ -184,9 +243,6 @@ export class MinecraftBot {
                         await this.bot.consume();
                         logger.info(`Slot ${this.slot}: Ate ${foodItem.name} (food: ${food} -> ${this.bot.food})`);
                     } else {
-                        // Only warn if *really* hungry (e.g. < 6) or just once in a while? 
-                        // Current logic warns every check if < 14 and no food. Maybe too spammy if inventory empty?
-                        // Let's keep it as is for now, user didn't complain about "no food" spam, just "Promise timed out".
                         logger.warn(`Slot ${this.slot}: Hungry (food: ${food}) but no food in inventory!`);
                     }
                 }
@@ -196,63 +252,44 @@ export class MinecraftBot {
                     nextDelay = 30000;
                 } else {
                     logger.error(`Slot ${this.slot}: Auto-eat error: ${error.message}`);
-                    nextDelay = 10000; // Backoff for other errors to prevent spam
+                    nextDelay = 10000;
                 }
             } finally {
-                // Schedule next check ONLY after this one finishes
                 this.autoEatTimeout = setTimeout(checkFood, nextDelay);
             }
         };
 
-        // Start the loop
         this.autoEatTimeout = setTimeout(checkFood, checkInterval);
     }
 
     startProximityCheck() {
-        const checkInterval = 1000; // Check every second
-
         this.proximityInterval = setInterval(() => {
             if (!this.bot || this.status !== 'online' || this.isPaused) return;
 
-            const players = this.bot.entities;
             const alertDistance = this.config.settings.alertDistance || 96;
-            const cooldown = this.config.settings.alertCooldown || 300000; // 5 mins
+            const cooldown = this.config.settings.alertCooldown || 300000;
             const now = Date.now();
 
-            for (const id in players) {
-                const entity = players[id];
+            for (const id in this.bot.entities) {
+                const entity = this.bot.entities[id];
                 if (entity.type !== 'player' || entity.username === this.accountConfig.username) continue;
-
-                // Check whitelist (case-insensitive)
-                if (this.config.settings.alertWhitelist) {
-                    const lowerWhitelist = this.config.settings.alertWhitelist.map(u => u.toLowerCase());
-                    if (lowerWhitelist.includes(entity.username.toLowerCase())) continue;
-                }
-
-                if (!entity.position) continue;
-                if (!this.bot.entity) continue;
+                if (this._cachedWhitelist.includes(entity.username.toLowerCase())) continue;
+                if (!entity.position || !this.bot.entity) continue;
 
                 const distance = this.bot.entity.position.distanceTo(entity.position);
 
-                // EMERGENCY DISCONNECT CHECK
-                // Used defaults: emergencyDistance = 10 blocks
+                // Emergency disconnect check
                 const emergencyDistance = this.config.settings.protection?.emergencyDistance || 10;
 
-                if (distance <= emergencyDistance && this.config.settings.protection?.enabled) {
-                    logger.error(`Slot ${this.slot}: 🚨 EMERGENCY: Player ${entity.username} is too close (${Math.round(distance)}m)! DISCONNECTING IMMEDIATELY! 🚨`);
+                if (distance <= emergencyDistance && this.protectionEnabled) {
+                    logger.error(`Slot ${this.slot}: 🚨 EMERGENCY: ${entity.username} at ${Math.round(distance)}m! DISCONNECTING! 🚨`);
 
-                    // Send alert before quitting
-                    const message = `🚨 **EMERGENCY DISCONNECT** 🚨\nSlot ${this.slot} detected **${entity.username}** at **${Math.round(distance)}** blocks! Exiting immediately!`;
                     if (this.onProximityAlert) {
-                        this.onProximityAlert(entity.username, distance); // Basic alert callback
+                        this.onProximityAlert(entity.username, distance);
                     }
-                    // Force generic alert (BotManager handles it)
-                    // Since we can't easily call botManager methods directly, we rely on the callback or just quitting.
-                    // The disconnect event might logicly handle reconnect, but for protection we might want to stay offline?
-                    // Current 'stop()' implementation sets isManuallyStopped=true which prevents auto-reconnect. Perfect.
 
                     this.stop();
-                    return; // Stop processing other entities
+                    return;
                 }
 
                 if (distance <= alertDistance) {
@@ -261,13 +298,10 @@ export class MinecraftBot {
                     if (now - lastAlert > cooldown) {
                         this.alertCooldowns.set(entity.username, now);
 
-                        // Trigger Spawner Protection if enabled
-                        if (this.config.settings.protection && this.config.settings.protection.enabled) {
-                            // execProtection sends start msg
+                        if (this.config.settings.protection && this.protectionEnabled) {
                             this.executeProtection();
                         }
 
-                        // Send 5 alerts as requested
                         let count = 0;
                         const alertLoop = setInterval(() => {
                             count++;
@@ -275,11 +309,11 @@ export class MinecraftBot {
                                 this.onProximityAlert(entity.username, distance);
                             }
                             if (count >= 5) clearInterval(alertLoop);
-                        }, 1000); // 1-second interval for 5 alerts
+                        }, 1000);
                     }
                 }
             }
-        }, checkInterval);
+        }, 1000);
     }
 
     async executeProtection() {
@@ -299,11 +333,7 @@ export class MinecraftBot {
         });
 
         if (blocks.length === 0) {
-            logger.info(`Slot ${this.slot}: No ${blockName} found to break.`);
-            // Disconnect anyway as a safety measure? User said "break all... AND THEN quit".
-            // If no spawners, maybe user still wants to quit due to intruder.
-            // Let's quit to be safe.
-            logger.info(`Slot ${this.slot}: Disconnecting for safety.`);
+            logger.info(`Slot ${this.slot}: No ${blockName} found. Disconnecting for safety.`);
             this.stop();
             return;
         }
@@ -334,19 +364,13 @@ export class MinecraftBot {
             if (!block) continue;
 
             try {
-                // Look at block
                 await this.bot.lookAt(pos);
-
-                // Safety check before digging
                 if (!this.bot) return;
 
-                // Dig
-                // Note: 'dig' automatically checks range, but we assume we are close enough based on 'findBlocks' radius
                 logger.info(`Slot ${this.slot}: Breaking ${block.name} at ${pos}`);
                 await this.bot.dig(block);
                 logger.info(`Slot ${this.slot}: Broken ${block.name}`);
 
-                // Wait 3 seconds
                 await new Promise(resolve => setTimeout(resolve, breakDelay));
             } catch (err) {
                 logger.error(`Slot ${this.slot}: Failed to break block at ${pos}: ${err.message}`);
@@ -359,6 +383,44 @@ export class MinecraftBot {
 
         // Disconnect
         this.stop();
+    }
+
+    toggleProtection() {
+        this.protectionEnabled = !this.protectionEnabled;
+        logger.info(`Slot ${this.slot}: Protection ${this.protectionEnabled ? 'ENABLED' : 'DISABLED'}`);
+        return this.protectionEnabled;
+    }
+
+    startLobbyRetry() {
+        this.stopLobbyRetry(); // Clear any existing interval
+
+        logger.info(`Slot ${this.slot}: Starting lobby retry loop (every 30s with /home sp1)`);
+
+        // First attempt after 10 seconds
+        setTimeout(() => {
+            if (this.bot && this.isInLobby) {
+                this.bot.chat('/home sp1');
+                logger.info(`Slot ${this.slot}: Sent /home sp1 (initial attempt)`);
+            }
+        }, 10000);
+
+        // Then retry every 30 seconds
+        this.lobbyRetryInterval = setInterval(() => {
+            if (!this.bot || !this.isInLobby) {
+                this.stopLobbyRetry();
+                return;
+            }
+
+            logger.info(`Slot ${this.slot}: Retrying /home sp1...`);
+            this.bot.chat('/home sp1');
+        }, 30000);
+    }
+
+    stopLobbyRetry() {
+        if (this.lobbyRetryInterval) {
+            clearInterval(this.lobbyRetryInterval);
+            this.lobbyRetryInterval = null;
+        }
     }
 
     handleReconnect() {
@@ -452,8 +514,6 @@ export class MinecraftBot {
 
         const startPos = this.bot.entity.position.clone();
         this.bot.setControlState(direction, true);
-
-        // Jumping removed as requested by user
 
         return new Promise((resolve) => {
             let isResolved = false;
@@ -572,6 +632,8 @@ export class MinecraftBot {
             clearTimeout(this.autoEatTimeout);
             this.autoEatTimeout = null;
         }
+        this.stopLobbyRetry();
+        this.isInLobby = false;
 
         this.bot = null;
         this.status = 'offline';

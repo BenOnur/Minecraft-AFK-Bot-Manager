@@ -74,7 +74,7 @@ export class TelegramBot {
                     await ctx.reply('🛑 Log streaming stopped.');
                 } else {
                     this.startLogStream(ctx.chat.id);
-                    await ctx.reply('rr Log streaming started. Logs will be sent here in batches.');
+                    await ctx.reply('▶️ Log streaming started. Logs will be sent here in batches.');
                 }
             });
 
@@ -90,7 +90,6 @@ export class TelegramBot {
                 logger.error(`Telegram launch failed: ${err.message}`);
                 // Retry logic could be added here
             });
-
 
             logger.info('Telegram bot launch initiated (background)...');
 
@@ -112,24 +111,16 @@ export class TelegramBot {
         let message = result.success ? '✅ ' : '❌ ';
         message += result.message;
 
-        // Status komutu için özel formatlama
+        // Status or inventory formatting
         if (result.data) {
-            if (Array.isArray(result.data)) {
-                // Check if it's a status array or inventory array
-                const isStatusArray = result.data.length > 0 && result.data[0].status !== undefined;
-
-                if (isStatusArray) {
-                    // Tüm botların durumu
-                    message += '\n\n';
-                    for (const status of result.data) {
-                        message += this.formatStatusLine(status) + '\n';
-                    }
-                } else {
-                    // Inventory (or empty array, defaulting to inventory format)
-                    message += '\n\n' + this.formatInventory(result.data);
+            if (Array.isArray(result.data) && result.data.length > 0 && result.data[0].status !== undefined) {
+                message += '\n\n';
+                for (const status of result.data) {
+                    message += this.formatStatusLine(status) + '\n';
                 }
+            } else if (Array.isArray(result.data)) {
+                message += '\n\n' + this.formatInventory(result.data);
             } else if (result.data.slot && result.data.status) {
-                // Tek bot durumu (Wait, inventory items also have slot. Check for status property too)
                 message += '\n\n' + this.formatStatusDetailed(result.data);
             }
         }
@@ -163,22 +154,8 @@ export class TelegramBot {
     }
 
     formatInventory(items) {
-        if (items.length === 0) {
-            return 'Inventory is empty';
-        }
+        if (items.length === 0) return 'Inventory is empty';
 
-        const armor = items.filter(i => i.slot >= 5 && i.slot <= 8); // Mineflayer slots: 5=helmet, 6=chest, 7=legs, 8=boots (Wait, standard MC protocol is different but mineflayer normalizes. Actually verify slots)
-        // Mineflayer: 0-8 hotbar, 9-35 main, 36-39 armor, 45 offhand.
-        // Wait, mineflayer 'items()' returns items with their slot index.
-        // Let's rely on standard mineflayer slot mappings:
-        // 0-8: Hotbar
-        // 9-35: Inventory
-        // 36-39: Armor (36=boots, 37=legs, 38=chest, 39=helmet) - Note: index might vary by version but this is common
-        // 45: Offhand
-
-        // Actually, let's just group them by range.
-
-        // Helper to categorize
         const getCategory = (slot) => {
             if (slot === 45) return '🛡️ Off-hand';
             if (slot >= 5 && slot <= 8) return '👕 Armor';
@@ -186,27 +163,18 @@ export class TelegramBot {
             return '🎒 Main Inventory';
         };
 
-        const getItemSlotDetail = (slot) => {
-            if (slot >= 36 && slot <= 44) return `Hotbar ${slot - 35}`; // 36->1, 44->9
+        const getSlotName = (slot) => {
+            if (slot >= 36 && slot <= 44) return `Hotbar ${slot - 35}`;
             if (slot === 45) return 'Off-hand';
-            if (slot === 5) return 'Helmet';
-            if (slot === 6) return 'Chestplate';
-            if (slot === 7) return 'Leggings';
-            if (slot === 8) return 'Boots';
-            return `Slot ${slot}`;
+            const armorNames = { 5: 'Helmet', 6: 'Chestplate', 7: 'Leggings', 8: 'Boots' };
+            return armorNames[slot] || `Slot ${slot}`;
         };
 
-        const categories = {
-            '👕 Armor': [],
-            '🛡️ Off-hand': [],
-            '🔥 Hotbar': [],
-            '🎒 Main Inventory': [],
-            'Unknown': []
-        };
+        const categories = {};
 
         for (const item of items) {
             const cat = getCategory(item.slot);
-            categories[cat] = categories[cat] || [];
+            if (!categories[cat]) categories[cat] = [];
             categories[cat].push(item);
         }
 
@@ -216,7 +184,7 @@ export class TelegramBot {
             if (catItems.length > 0) {
                 text += `\n**${cat}**\n`;
                 for (const item of catItems) {
-                    text += `• ${item.count}x ${item.name} _(${getItemSlotDetail(item.slot)})_\n`;
+                    text += `• ${item.count}x ${item.name} _(${getSlotName(item.slot)})_\n`;
                 }
             }
         }

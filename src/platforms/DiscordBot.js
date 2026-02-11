@@ -45,40 +45,30 @@ export class DiscordBot {
             });
 
             this.client.on('messageCreate', async (message) => {
-                // Ignore bot messages
                 if (message.author.bot) return;
 
-                // Handle !logs command specifically
+                // Handle !logs toggle
                 if (message.content === '!logs') {
-                    if (!this.auth.isDiscordUserAuthorized(message.author.id, message.guildId)) {
-                        return;
-                    }
+                    if (!this.auth.isDiscordUserAuthorized(message.author.id, message.guildId)) return;
 
                     if (this.isLogStreaming) {
                         this.stopLogStream();
                         await message.reply('🛑 Log streaming stopped.');
                     } else {
-                        // Use current channel
                         this.startLogStream(message.channel.id);
                         await message.reply('▶️ Log streaming started in this channel.');
                     }
                     return;
                 }
 
-                // Only process commands
                 if (!message.content.startsWith('!')) return;
 
-                // Authorization check
                 if (!this.auth.isDiscordUserAuthorized(message.author.id, message.guildId)) {
-                    logger.warn(`Unauthorized Discord user: ${message.author.id} (${message.author.tag})`);
                     await message.reply('❌ You are not authorized to use this bot.');
                     return;
                 }
 
-                logger.info(`Discord command from ${message.author.tag}: ${message.content}`);
-
                 try {
-                    // Send command with '/' prefix to maintain compatibility with CommandParser
                     const commandContent = '/' + message.content.substring(1);
                     const result = await this.commandHandler.handleCommand(commandContent, 'discord', message.author);
                     await this.sendResponse(message, result);
@@ -108,23 +98,11 @@ export class DiscordBot {
             return;
         }
 
-        // Status komutu için embed kullan
+        // Status komutu için embed
         if (result.data && Array.isArray(result.data) && result.data[0]?.slot) {
-            const embed = this.createStatusEmbed(result.data);
-            await message.reply({ embeds: [embed] });
-            return;
-        }
-
-        // Tek bot status için
-        if (result.data && result.data.slot) {
-            const embed = this.createSingleStatusEmbed(result.data);
-            await message.reply({ embeds: [embed] });
-            return;
-        }
-
-        // Inventory için
-        if (result.data && Array.isArray(result.data) && result.data[0]?.name) {
-            const embed = this.createInventoryEmbed(result.data, result.message);
+            const embed = result.data[0]?.status !== undefined
+                ? this.createStatusEmbed(result.data)
+                : this.createInventoryEmbed(result.data, result.message);
             await message.reply({ embeds: [embed] });
             return;
         }
@@ -235,12 +213,6 @@ export class DiscordBot {
             try {
                 const user = await this.client.users.fetch(userId);
                 if (user) {
-                    // Prepend mention to the message content for notifications
-                    // Note: sending to user DM vs channel. 
-                    // If user wants to be "tagged", it implies a channel context usually, 
-                    // but in DM a mention is just highlighting. 
-                    // However, if the user requested "notifications 5 times... make it tag me",
-                    // they likely mean they want the visual cue of a mention.
                     await user.send(`<@${userId}>\n${message}`);
                 }
             } catch (error) {

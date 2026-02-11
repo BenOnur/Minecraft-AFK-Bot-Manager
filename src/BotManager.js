@@ -17,39 +17,27 @@ export class BotManager {
         this.discordBot = discordBot;
     }
 
-    handleProximityAlert(slot, player, distance) {
-        const message = `⚠️ **PROXIMITY ALERT** ⚠️\nSlot ${slot} detected player **${player}** at **${Math.round(distance)}** blocks!`;
-
-        logger.warn(`Slot ${slot}: Proximity alert - ${player} (${Math.round(distance)} blocks)`);
-
-        // Send to Telegram
+    broadcastMessage(message) {
         if (this.telegramBot && this.telegramBot.bot) {
             for (const userId of this.config.telegram.allowedUsers) {
                 this.telegramBot.bot.telegram.sendMessage(userId, message).catch(() => { });
             }
         }
-
-        // Send to Discord
         if (this.discordBot) {
             this.discordBot.sendAlert(message);
         }
     }
 
+    handleProximityAlert(slot, player, distance) {
+        const message = `⚠️ **PROXIMITY ALERT** ⚠️\nSlot ${slot} detected player **${player}** at **${Math.round(distance)}** blocks!`;
+        logger.warn(`Slot ${slot}: Proximity alert - ${player} (${Math.round(distance)} blocks)`);
+        this.broadcastMessage(message);
+    }
+
     handleConnect(slot, host, version) {
         const message = `[${slot}] connected -> (${host}) (${version})`;
         logger.info(message);
-
-        // Send to Telegram
-        if (this.telegramBot && this.telegramBot.bot) {
-            for (const userId of this.config.telegram.allowedUsers) {
-                this.telegramBot.bot.telegram.sendMessage(userId, message).catch(() => { });
-            }
-        }
-
-        // Send to Discord
-        if (this.discordBot) {
-            this.discordBot.sendAlert(message);
-        }
+        this.broadcastMessage(message);
     }
 
     async initialize() {
@@ -60,12 +48,34 @@ export class BotManager {
             // Callback for alerts
             bot.onProximityAlert = (player, distance) => this.handleProximityAlert(accountConfig.slot, player, distance);
             bot.onConnect = (host, version) => this.handleConnect(accountConfig.slot, host, version);
+            bot.onLobbyDetected = (inLobby) => this.handleLobbyDetected(accountConfig.slot, inLobby);
 
             this.bots.set(accountConfig.slot, bot);
             logger.info(`Registered slot ${accountConfig.slot} for ${accountConfig.username}`);
         }
 
         logger.info(`Bot Manager initialized with ${this.bots.size} accounts`);
+    }
+
+    handleLobbyDetected(slot, inLobby) {
+        const emoji = inLobby ? '🏢' : '✅';
+        const status = inLobby ? 'Lobby detected! Server maintenance suspected. Waiting...' : 'Returned from lobby! Normal operation resumed.';
+        const message = `${emoji} **Slot ${slot}:** ${status}`;
+        logger.warn(message);
+        this.broadcastMessage(message);
+    }
+
+    toggleProtection(slot) {
+        const bot = this.bots.get(slot);
+        if (!bot) {
+            return { success: false, message: `Slot ${slot} not found` };
+        }
+
+        const newState = bot.toggleProtection();
+        return {
+            success: true,
+            message: `🛡️ Slot ${slot} protection: **${newState ? 'ENABLED ✅' : 'DISABLED ❌'}**`
+        };
     }
 
     async startBot(slot) {
@@ -152,13 +162,9 @@ export class BotManager {
     }
 
     async addAccount(platform, userId) {
-        // Find next available slot
         const existingSlots = Array.from(this.bots.keys());
         const newSlot = existingSlots.length > 0 ? Math.max(...existingSlots) + 1 : 1;
 
-        logger.info(`Starting new account setup for slot ${newSlot}...`);
-
-        // Notify user about the process
         const initMessage = `🚀 **Initializing New Account**\nSlot: ${newSlot}\nStatus: Waiting for Microsoft Auth...`;
         this.sendPlatformMessage(platform, userId, initMessage);
 
@@ -176,7 +182,6 @@ export class BotManager {
         const bot = new MinecraftBot(this.config, tempConfig);
 
         // Hook into login event to save config
-        const originalOnConnect = bot.onConnect;
         bot.onConnect = async (host, version) => {
             const username = bot.bot.username;
             logger.info(`[Slot ${newSlot}] Successfully authenticated as ${username}`);
@@ -192,18 +197,15 @@ export class BotManager {
             });
             await this.saveConfig();
 
-            // STOP the temporary bot to release file locks on the session folder
+            // Stop temp bot, rename session folder, create permanent bot
             await bot.stop();
 
-            // RENAME SESSION FOLDER to match real username
             try {
-                // Give a small delay for file handles to close
                 await new Promise(resolve => setTimeout(resolve, 1000));
 
                 const oldPath = path.resolve(`./sessions/New_Account_${newSlot}`);
                 const newPath = path.resolve(`./sessions/${username}`);
 
-                // Remove existing folder if it conflicts
                 try {
                     await fs.rm(newPath, { recursive: true, force: true });
                 } catch (e) { /* ignore */ }
@@ -214,23 +216,19 @@ export class BotManager {
                 logger.error(`[Slot ${newSlot}] Failed to rename session folder: ${err.message}`);
             }
 
-            // CREATE NEW BOT INSTANCE with the correct config (pointing to the renamed folder)
-            // Retrieve the updated config object we just pushed
+            // Create new bot instance with correct session path
             const realAccountConfig = this.config.minecraft.accounts.find(a => a.slot === newSlot);
 
             const newBot = new MinecraftBot(this.config, realAccountConfig);
-
-            // Set callbacks for the new bot
             newBot.onProximityAlert = (p, d) => this.handleProximityAlert(newSlot, p, d);
             newBot.onConnect = (h, v) => this.handleConnect(newSlot, h, v);
+            newBot.onLobbyDetected = (inLobby) => this.handleLobbyDetected(newSlot, inLobby);
 
-            // Register permanently in manager
             this.bots.set(newSlot, newBot);
 
-            // Start the new bot (it should find the session now)
             try {
                 await newBot.start();
-                this.handleConnect(newSlot, this.config.minecraft.server.host, this.config.minecraft.server.version); // Fallback notification
+                this.handleConnect(newSlot, this.config.minecraft.server.host, this.config.minecraft.server.version);
             } catch (e) {
                 logger.error(`Failed to restart bot with new session: ${e.message}`);
                 this.sendPlatformMessage(platform, userId, `❌ Failed to restart with saved session: ${e.message}`);
@@ -254,60 +252,32 @@ export class BotManager {
             return { success: false, message: `Slot ${slotNum} not found.` };
         }
 
-        logger.info(`Removing account from slot ${slotNum}...`);
-
-        // Stop the bot to be removed
         const botToRemove = this.bots.get(slotNum);
         await botToRemove.stop();
         this.bots.delete(slotNum);
 
         // Remove from config array
-        const initialLength = this.config.minecraft.accounts.length;
         this.config.minecraft.accounts = this.config.minecraft.accounts.filter(acc => acc.slot !== slotNum);
 
-        if (this.config.minecraft.accounts.length === initialLength) {
-            logger.warn(`Slot ${slotNum} was running but not found in config file?`);
-        }
-
-        // Reorder slots for remaining bots
-        // We need to shift any bot with slot > slotNum down by 1
-        let shiftedCount = 0;
-
-        // We need to process strictly in ascending order to avoid conflicts if we were just moving pointers, 
-        // but here we are changing properties. Safe to iterate.
-
-        // Deep copy or direct mutation? We need to mutate the config objects.
-        // Also update the KEY in the map.
-
-        // 1. Identify bots that need shifting
+        // Shift subsequent slots down
         const botsToShift = [];
         this.bots.forEach(bot => {
-            if (bot.slot > slotNum) {
-                botsToShift.push(bot);
-            }
+            if (bot.slot > slotNum) botsToShift.push(bot);
         });
-
-        // 2. Sort them ascending so we shift 2->1, then 3->2 (if we were sequential). 
-        // Actually order doesn't matter for the Map deletion/insertion if we do it carefully.
         botsToShift.sort((a, b) => a.slot - b.slot);
 
+        let shiftedCount = 0;
         for (const bot of botsToShift) {
             const oldSlot = bot.slot;
             const newSlot = oldSlot - 1;
 
-            // Update Config
             const configAcc = this.config.minecraft.accounts.find(a => a.slot === oldSlot);
-            if (configAcc) {
-                configAcc.slot = newSlot;
-            }
+            if (configAcc) configAcc.slot = newSlot;
 
-            // Update Map
             this.bots.delete(oldSlot);
             bot.slot = newSlot;
             bot.accountConfig.slot = newSlot;
             this.bots.set(newSlot, bot);
-
-            logger.info(`Shifted bot ${bot.accountConfig.username} from slot ${oldSlot} to ${newSlot}`);
             shiftedCount++;
         }
 
@@ -322,35 +292,30 @@ export class BotManager {
     }
 
     getAccountList() {
-        if (!this.config.minecraft.accounts || this.config.minecraft.accounts.length === 0) {
-            return [];
-        }
+        if (!this.config.minecraft.accounts?.length) return [];
 
         // Sort by slot
-        const accounts = [...this.config.minecraft.accounts].sort((a, b) => a.slot - b.slot);
-
-        return accounts.map(acc => {
-            const bot = this.bots.get(acc.slot);
-            return {
-                slot: acc.slot,
-                username: acc.username,
-                status: bot ? bot.status : 'stopped'
-            };
-        });
+        return [...this.config.minecraft.accounts]
+            .sort((a, b) => a.slot - b.slot)
+            .map(acc => {
+                const bot = this.bots.get(acc.slot);
+                return {
+                    slot: acc.slot,
+                    username: acc.username,
+                    status: bot ? bot.status : 'stopped'
+                };
+            });
     }
 
     sendPlatformMessage(platform, userId, message) {
         if (platform === 'telegram' && this.telegramBot?.bot) {
-            this.telegramBot.bot.telegram.sendMessage(userId, message, { parse_mode: 'Markdown' }).catch(e => logger.error(`TG Send Error: ${e.message}`));
+            this.telegramBot.bot.telegram.sendMessage(userId, message, { parse_mode: 'Markdown' })
+                .catch(e => logger.error(`TG Send Error: ${e.message}`));
         } else if (platform === 'discord' && this.discordBot) {
-            // Assuming DiscordBot has a method to send DM or channel message, 
-            // for now we might route via a generic alert if specific user DM isn't implemented.
-            // But usually commands come from a context. 
-            // Since we need to reply to a specific user/channel:
             if (userId && typeof userId.send === 'function') {
                 userId.send(message).catch(e => logger.error(`DS Send Error: ${e.message}`));
             } else {
-                this.discordBot.sendAlert(message); // Fallback to alert channel
+                this.discordBot.sendAlert(message);
             }
         } else {
             logger.info(`[Config Action] ${message}`);
@@ -431,11 +396,9 @@ export class BotManager {
 
     async saveConfig() {
         try {
-            const fs = await import('fs/promises');
-            const path = await import('path');
-            const configPath = path.resolve('config.json');
-            await fs.writeFile(configPath, JSON.stringify(this.config, null, 4));
-            logger.info('Configuration saved successfully');
+            const configPath = (await import('path')).resolve('config.json');
+            await (await import('fs/promises')).writeFile(configPath, JSON.stringify(this.config, null, 4));
+            logger.info('Configuration saved');
             return true;
         } catch (error) {
             logger.error(`Failed to save configuration: ${error.message}`);

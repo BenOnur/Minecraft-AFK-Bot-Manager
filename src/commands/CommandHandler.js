@@ -59,6 +59,8 @@ export class CommandHandler {
                 case 'whitelist':
                 case 'wl':
                     return await this.handleWhitelist(args);
+                case 'protect':
+                    return await this.handleProtect(args);
                 default:
                     return { success: false, message: `Unknown command: ${command}` };
             }
@@ -417,6 +419,20 @@ export class CommandHandler {
         }
     }
 
+    // /protect 1
+    async handleProtect(args) {
+        if (args.length === 0) {
+            return { success: false, message: 'Usage: /protect <slot>' };
+        }
+
+        const slot = parseInt(args[0]);
+        if (isNaN(slot)) {
+            return { success: false, message: 'Invalid slot number' };
+        }
+
+        return this.botManager.toggleProtection(slot);
+    }
+
     handleHelp(platform) {
         if (platform === 'telegram') {
             return this.handleTelegramHelp();
@@ -465,6 +481,7 @@ export class CommandHandler {
 /whitelist add <name> - Whitelist user
 /whitelist remove <name> - Remove user
 /whitelist list - Show whitelist
+/protect <slot> - Toggle spawner protection
     `.trim();
 
         return { success: true, message: helpText, parseOptions: { parse_mode: 'Markdown' } };
@@ -507,7 +524,7 @@ export class CommandHandler {
                     },
                     {
                         name: '🛡️ Security',
-                        value: '`/whitelist add <name>`\n`/whitelist remove <name>`\n`/whitelist list`',
+                        value: '`/whitelist add <name>`\n`/whitelist remove <name>`\n`/whitelist list`\n`/protect <slot>` - Toggle protection',
                         inline: false
                     }
                 ],
@@ -549,6 +566,7 @@ export class CommandHandler {
 **Security:**
 /whitelist add <player> - Add player to alert whitelist
 /whitelist list - Show whitelisted players
+/protect <slot> - Toggle spawner protection
     `.trim();
 
         return { success: true, message: helpText };
