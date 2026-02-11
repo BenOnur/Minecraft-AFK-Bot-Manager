@@ -90,10 +90,41 @@ async function main() {
         logger.info('='.repeat(50));
         logger.info('All systems started successfully!');
         logger.info('='.repeat(50));
+        // CLI Command Support (fallback when Telegram/Discord unavailable)
+        const readline = await import('readline');
+        const rl = readline.createInterface({
+            input: process.stdin,
+            output: process.stdout
+        });
+
+        rl.on('line', async (input) => {
+            const command = input.trim();
+            if (!command.startsWith('/')) return;
+
+            if (command === '/stop_app') {
+                shutdown('CONSOLE');
+                return;
+            }
+
+            try {
+                const result = await botManager.commandHandler.handleCommand(command, 'console', null);
+                if (result.success) {
+                    logger.info(`✅ ${result.message}`);
+                    if (result.data) logger.info(JSON.stringify(result.data, null, 2));
+                } else {
+                    logger.warn(`❌ ${result.message}`);
+                }
+            } catch (error) {
+                logger.error(`Command error: ${error.message}`);
+            }
+        });
+
+        logger.info('📟 Console commands enabled. Type /help for commands.');
 
         // Graceful shutdown
         const shutdown = async (signal) => {
             logger.info(`\nReceived ${signal}, shutting down gracefully...`);
+            rl.close();
 
             await botManager.stopAll();
             await telegramBot.stop();
