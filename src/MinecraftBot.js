@@ -35,6 +35,8 @@ export class MinecraftBot {
         this.lastPosition = null;
         this.isInLobby = false;
         this.lobbyRetryInterval = null;
+        this.isEating = false;
+        this.eatTimeoutCount = 0;
 
         this._cachedWhitelist = (this.config.settings.alertWhitelist || []).map(u => u.toLowerCase());
     }
@@ -239,7 +241,7 @@ export class MinecraftBot {
         const interval = this.config.settings.antiAfkInterval || 30000;
 
         this.antiAfkInterval = setInterval(() => {
-            if (this.bot && this.status === 'online' && !this.isPaused) {
+            if (this.bot && this.status === 'online' && !this.isPaused && !this.isEating) {
                 this.bot.setControlState('jump', true);
                 setTimeout(() => {
                     if (this.bot) this.bot.setControlState('jump', false);
@@ -268,17 +270,25 @@ export class MinecraftBot {
                     );
 
                     if (foodItem) {
+                        this.isEating = true;
                         await this.bot.equip(foodItem, 'hand');
                         await this.bot.consume();
+                        this.isEating = false;
+                        this.eatTimeoutCount = 0;
                         logger.info(`Slot ${this.slot}: Ate ${foodItem.name} (food: ${food} -> ${this.bot.food})`);
                     } else {
                         logger.warn(`Slot ${this.slot}: Hungry (food: ${food}) but no food in inventory!`);
                     }
                 }
             } catch (error) {
+                this.isEating = false;
                 if (error.message.includes('Promise timed out')) {
-                    logger.warn(`Slot ${this.slot}: Auto-eat timed out. Retrying in 30s.`);
-                    nextDelay = 30000;
+                    this.eatTimeoutCount++;
+                    if (this.eatTimeoutCount <= 3) {
+                        logger.warn(`Slot ${this.slot}: Auto-eat timed out (${this.eatTimeoutCount}/3). Retrying in 30s.`);
+                    }
+                    // After 3 consecutive timeouts, go silent and retry less frequently
+                    nextDelay = this.eatTimeoutCount > 3 ? 60000 : 30000;
                 } else {
                     logger.error(`Slot ${this.slot}: Auto-eat error: ${error.message}`);
                     nextDelay = 10000;
