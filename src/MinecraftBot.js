@@ -92,6 +92,9 @@ export class MinecraftBot {
             this.isConnecting = false;
             this.reconnectAttempts = 0;
 
+            // Sneak to hide name tag
+            this.bot.setControlState('sneak', true);
+
             if (this.config.settings.antiAfkEnabled) {
                 this.startAntiAfk();
             }
@@ -108,6 +111,9 @@ export class MinecraftBot {
 
         this.bot.on('spawn', () => {
             logger.info(`Slot ${this.slot}: Spawned in game`);
+
+            // Re-apply sneak on every spawn to keep name tag hidden
+            this.bot.setControlState('sneak', true);
 
             // Lobby/maintenance detection: if position changed drastically
             if (this.lastPosition && this.bot && this.bot.entity) {
