@@ -61,7 +61,7 @@ export class DiscordBot {
                     return;
                 }
 
-                if (!message.content.startsWith('!')) return;
+                if (!message.content.startsWith('!') && !message.content.startsWith('/')) return;
 
                 if (!this.auth.isDiscordUserAuthorized(message.author.id, message.guildId)) {
                     await message.reply('❌ You are not authorized to use this bot.');
