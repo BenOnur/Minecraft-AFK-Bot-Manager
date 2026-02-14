@@ -463,4 +463,38 @@ export class BotManager {
         await this.saveConfig();
         return { success: true, message: `Removed ${username} from whitelist` };
     }
+
+    async toggleProtection(slot) {
+        // 1. Update config first (persistence)
+        const accountConfig = this.config.minecraft.accounts.find(acc => acc.slot === slot);
+        if (!accountConfig) {
+            return { success: false, message: `Slot ${slot} not found in configuration.` };
+        }
+
+        // Toggle state (default to config setting if undefined)
+        const currentGlobal = this.config.settings.protection?.enabled || false;
+        const currentState = accountConfig.protectionEnabled !== undefined ? accountConfig.protectionEnabled : currentGlobal;
+        const newState = !currentState;
+
+        accountConfig.protectionEnabled = newState;
+
+        try {
+            await this.saveConfig();
+        } catch (error) {
+            logger.error(`Failed to save protection state for slot ${slot}: ${error.message}`);
+            return { success: false, message: 'Failed to save configuration.' };
+        }
+
+        // 2. Update running bot if exists
+        const bot = this.bots.get(slot);
+        if (bot) {
+            bot.toggleProtection(newState);
+        }
+
+        return {
+            success: true,
+            message: `Protection for Slot ${slot} is now ${newState ? 'VP AÇIK' : 'VP KAPALI'} (kaydedildi).`,
+            enabled: newState
+        };
+    }
 }

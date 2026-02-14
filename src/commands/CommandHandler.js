@@ -60,6 +60,10 @@ export class CommandHandler {
                 case 'wl':
                     return await this.handleWhitelist(args);
                 case 'protect':
+                case 'p':
+                    return await this.handleProtect(args);
+                    return await this.handleWhitelist(args);
+                case 'protect':
                     return await this.handleProtect(args);
                 case 'stats':
                     return await this.handleStats(args);
@@ -623,5 +627,18 @@ export class CommandHandler {
     `.trim();
 
         return { success: true, message: helpText };
+    }
+
+    async handleProtect(args) {
+        if (args.length === 0) {
+            return { success: false, message: 'Usage: /protect <slot>' };
+        }
+
+        const slot = parseInt(args[0]);
+        if (isNaN(slot)) {
+            return { success: false, message: 'Invalid slot number' };
+        }
+
+        return await this.botManager.toggleProtection(slot);
     }
 }

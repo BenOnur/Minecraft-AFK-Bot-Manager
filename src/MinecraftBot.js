@@ -59,6 +59,10 @@ export class MinecraftBot {
         this.onInventoryAlert = null;
         this.tempReconnectDelay = null;
         this.protectionEnabled = this.config.settings.protection?.enabled || false;
+        if (this.accountConfig.protectionEnabled !== undefined) { // Persistence override
+            this.protectionEnabled = this.accountConfig.protectionEnabled;
+        }
+        this.reconnectTimeout = null;
         this.lastPosition = null;
         this.isInLobby = false;
         this.lobbyRetryInterval = null;
@@ -551,8 +555,12 @@ export class MinecraftBot {
         this.stop();
     }
 
-    toggleProtection() {
-        this.protectionEnabled = !this.protectionEnabled;
+    toggleProtection(forceState = null) {
+        if (forceState !== null) {
+            this.protectionEnabled = forceState;
+        } else {
+            this.protectionEnabled = !this.protectionEnabled;
+        }
         logger.info(`Slot ${this.slot}: Protection ${this.protectionEnabled ? 'ENABLED' : 'DISABLED'}`);
         return this.protectionEnabled;
     }
@@ -694,7 +702,7 @@ export class MinecraftBot {
 
         logger.info(`Slot ${this.slot}: Reconnecting in ${delay / 1000}s (attempt ${this.reconnectAttempts}/${this.config.settings.maxReconnectAttempts})`);
 
-        setTimeout(() => {
+        this.reconnectTimeout = setTimeout(() => {
             if (!this.isManuallyStopped) {
                 this.start();
             }
@@ -702,13 +710,15 @@ export class MinecraftBot {
     }
 
     async stop() {
-        if (!this.bot) {
-            logger.warn(`Slot ${this.slot}: Bot is not running`);
-            return false;
+        this.isManuallyStopped = true;
+
+        if (this.reconnectTimeout) {
+            clearTimeout(this.reconnectTimeout);
+            this.reconnectTimeout = null;
         }
 
-        this.isManuallyStopped = true;
         logger.info(`Slot ${this.slot}: Stopping bot`);
+
         if (this.bot) {
             this.bot.quit();
         }
