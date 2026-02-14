@@ -389,9 +389,11 @@ export class MinecraftBot {
 
                 const distance = this.bot.entity.position.distanceTo(entity.position);
 
-                // Emergency disconnect: player within 10 blocks → disconnect to save inventory
+                // Emergency disconnect: player within 10 blocks (only if NOT whitelisted) -> disconnect to save inventory
                 const emergencyDistance = this.config.settings.protection?.emergencyDistance || 10;
-                if (distance <= emergencyDistance) {
+
+                // Double check whitelist here just to be safe (already scanned above but good for robustness)
+                if (distance <= emergencyDistance && !this._cachedWhitelist.includes(entity.username.toLowerCase())) {
                     logger.error(`Slot ${this.slot}: 🚨 EMERGENCY: ${entity.username} at ${Math.round(distance)}m! DISCONNECTING to save inventory! 🚨`);
                     if (this.onProximityAlert) {
                         this.onProximityAlert(entity.username, distance);
@@ -407,7 +409,9 @@ export class MinecraftBot {
                     if (now - lastAlert > cooldown) {
                         this.alertCooldowns.set(entity.username, now);
 
+                        // Protection trigger
                         if (this.config.settings.protection && this.protectionEnabled) {
+                            logger.info(`Slot ${this.slot}: Threat detected (${entity.username} at ${Math.round(distance)}m). Triggering protection.`);
                             this.executeProtection();
                         }
 
@@ -415,9 +419,12 @@ export class MinecraftBot {
                         let count = 0;
                         const alertLoop = setInterval(() => {
                             count++;
-                            this.stats.alertsTriggered++;
-                            if (this.onProximityAlert) {
-                                this.onProximityAlert(entity.username, distance);
+                            // Only valid if bot still exists
+                            if (this.bot) {
+                                this.stats.alertsTriggered++;
+                                if (this.onProximityAlert) {
+                                    this.onProximityAlert(entity.username, distance);
+                                }
                             }
                             if (count >= 5) clearInterval(alertLoop);
                         }, 1000);
@@ -476,10 +483,10 @@ export class MinecraftBot {
 
         // Loop: keep scanning and breaking until no spawners remain or inventory full
         while (this.bot && this.status === 'online') {
-            // Check inventory fullness (36 slots total, if empty slots <= 0 it's full)
+            // Check inventory fullness (stop if <= 2 empty slots to ensure we picked up loot)
             const emptySlots = this.bot.inventory.emptySlotCount();
-            if (emptySlots <= 0) {
-                logger.warn(`Slot ${this.slot}: 📦 Inventory FULL! Stopping protection and disconnecting.`);
+            if (emptySlots <= 2) {
+                logger.warn(`Slot ${this.slot}: 📦 Inventory nearly FULL (<=2 slots)! Stopping protection and disconnecting.`);
                 break;
             }
 
@@ -502,15 +509,13 @@ export class MinecraftBot {
 
                 // Emergency: check if any enemy is within 10 blocks
                 if (this.isEnemyNearby()) {
-                    logger.error(`Slot ${this.slot}: 🚨 Enemy too close while breaking! EMERGENCY DISCONNECT! 🚨`);
-                    this._protectionRunning = false;
-                    this.stop();
-                    return;
+                    logger.warn(`Slot ${this.slot}: ⚠️ Enemy nearby while breaking! Continuing destruction...`);
+                    // We DO NOT stop here anymore, we keep breaking until done or full inv
                 }
 
                 // Re-check inventory before each break
-                if (this.bot.inventory.emptySlotCount() <= 0) {
-                    logger.warn(`Slot ${this.slot}: 📦 Inventory FULL mid-break! Stopping.`);
+                if (this.bot.inventory.emptySlotCount() <= 2) {
+                    logger.warn(`Slot ${this.slot}: 📦 Inventory nearly FULL mid-break! Stopping.`);
                     break;
                 }
 
