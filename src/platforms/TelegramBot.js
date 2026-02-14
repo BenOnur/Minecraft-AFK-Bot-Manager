@@ -94,8 +94,9 @@ export class TelegramBot {
             logger.info('Telegram bot launch initiated (background)...');
 
             // Enable graceful stop
-            process.once('SIGINT', () => this.bot.stop('SIGINT'));
-            process.once('SIGTERM', () => this.bot.stop('SIGTERM'));
+            // Signal handling is managed by index.js
+            // process.once('SIGINT', () => this.bot.stop('SIGINT'));
+            // process.once('SIGTERM', () => this.bot.stop('SIGTERM'));
 
         } catch (error) {
             logger.error(`Failed to start Telegram bot: ${error.message}`);

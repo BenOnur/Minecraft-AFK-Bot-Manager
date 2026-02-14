@@ -61,6 +61,8 @@ export class CommandHandler {
                     return await this.handleWhitelist(args);
                 case 'protect':
                     return await this.handleProtect(args);
+                case 'stats':
+                    return await this.handleStats(args);
                 default:
                     return { success: false, message: `Unknown command: ${command}` };
             }
@@ -433,6 +435,55 @@ export class CommandHandler {
         return this.botManager.toggleProtection(slot);
     }
 
+    async handleStats(args) {
+        if (args.length === 0) {
+            // All bots stats
+            const allStats = this.botManager.getAllStats();
+            if (allStats.length === 0) {
+                return { success: true, message: 'No bots configured.' };
+            }
+
+            let message = '📊 **Bot İstatistikleri**\n\n';
+            for (const stat of allStats) {
+                const statusEmoji = stat.status === 'online' ? '🟢' : '⚫';
+                message += `${statusEmoji} **Slot ${stat.slot}** (${stat.username})\n`;
+                message += `⏱ Uptime: ${stat.uptimeFormatted}\n`;
+                message += `🔄 Reconnect: ${stat.reconnects} | ⚠️ Alert: ${stat.alertsTriggered}\n`;
+                message += `💎 Spawner: ${stat.spawnersBroken} | 🏢 Lobby: ${stat.lobbyEvents}\n\n`;
+            }
+
+            return { success: true, message: message.trim() };
+        }
+
+        const slot = parseInt(args[0]);
+        if (isNaN(slot)) {
+            return { success: false, message: 'Invalid slot number' };
+        }
+
+        const stat = this.botManager.getBotStats(slot);
+        if (!stat) {
+            return { success: false, message: `Slot ${slot} not found` };
+        }
+
+        const statusEmoji = stat.status === 'online' ? '🟢' : '⚫';
+        let message = `📊 **Slot ${stat.slot} İstatistikleri** (${stat.username})\n\n`;
+        message += `${statusEmoji} Durum: **${stat.status}**\n`;
+        message += `⏱ Uptime: **${stat.uptimeFormatted}**\n`;
+        message += `📅 Oturum Süresi: **${stat.sessionTimeFormatted}**\n`;
+        message += `🔄 Reconnect Sayısı: **${stat.reconnects}**\n`;
+        message += `⚠️ Alarm Sayısı: **${stat.alertsTriggered}**\n`;
+        message += `💎 Kırılan Spawner: **${stat.spawnersBroken}**\n`;
+        message += `🏢 Lobby Olayları: **${stat.lobbyEvents}**`;
+
+        if (stat.lastDisconnect) {
+            const ago = Date.now() - stat.lastDisconnect;
+            const minutes = Math.floor(ago / 60000);
+            message += `\n📡 Son Kopma: **${minutes} dk önce**`;
+        }
+
+        return { success: true, message };
+    }
+
     handleHelp(platform) {
         if (platform === 'telegram') {
             return this.handleTelegramHelp();
@@ -482,6 +533,7 @@ export class CommandHandler {
 /whitelist remove <name> - Remove user
 /whitelist list - Show whitelist
 /protect <slot> - Toggle spawner protection
+/stats [slot] - Bot istatistikleri
     `.trim();
 
         return { success: true, message: helpText, parseOptions: { parse_mode: 'Markdown' } };
@@ -524,7 +576,7 @@ export class CommandHandler {
                     },
                     {
                         name: '🛡️ Security',
-                        value: '`/whitelist add <name>`\n`/whitelist remove <name>`\n`/whitelist list`\n`/protect <slot>` - Toggle protection',
+                        value: '`/whitelist add <name>`\n`/whitelist remove <name>`\n`/whitelist list`\n`/protect <slot>` - Toggle protection\n`/stats [slot]` - Bot statistics',
                         inline: false
                     }
                 ],
@@ -567,6 +619,7 @@ export class CommandHandler {
 /whitelist add <player> - Add player to alert whitelist
 /whitelist list - Show whitelisted players
 /protect <slot> - Toggle spawner protection
+/stats [slot] - Bot statistics
     `.trim();
 
         return { success: true, message: helpText };

@@ -49,6 +49,7 @@ export class BotManager {
             bot.onProximityAlert = (player, distance) => this.handleProximityAlert(accountConfig.slot, player, distance);
             bot.onConnect = (host, version) => this.handleConnect(accountConfig.slot, host, version);
             bot.onLobbyDetected = (inLobby) => this.handleLobbyDetected(accountConfig.slot, inLobby);
+            bot.onInventoryAlert = (msg) => this.handleInventoryAlert(msg);
 
             this.bots.set(accountConfig.slot, bot);
             logger.info(`Registered slot ${accountConfig.slot} for ${accountConfig.username}`);
@@ -61,6 +62,11 @@ export class BotManager {
         const emoji = inLobby ? '🏢' : '✅';
         const status = inLobby ? 'Lobby detected! Server maintenance suspected. Waiting...' : 'Returned from lobby! Normal operation resumed.';
         const message = `${emoji} **Slot ${slot}:** ${status}`;
+        logger.warn(message);
+        this.broadcastMessage(message);
+    }
+
+    handleInventoryAlert(message) {
         logger.warn(message);
         this.broadcastMessage(message);
     }
@@ -223,6 +229,7 @@ export class BotManager {
             newBot.onProximityAlert = (p, d) => this.handleProximityAlert(newSlot, p, d);
             newBot.onConnect = (h, v) => this.handleConnect(newSlot, h, v);
             newBot.onLobbyDetected = (inLobby) => this.handleLobbyDetected(newSlot, inLobby);
+            newBot.onInventoryAlert = (msg) => this.handleInventoryAlert(msg);
 
             this.bots.set(newSlot, newBot);
 
@@ -363,6 +370,20 @@ export class BotManager {
         return statuses;
     }
 
+    getBotStats(slot) {
+        const bot = this.bots.get(slot);
+        if (!bot) return null;
+        return bot.getStats();
+    }
+
+    getAllStats() {
+        const stats = [];
+        for (const [slot, bot] of this.bots) {
+            stats.push(bot.getStats());
+        }
+        return stats;
+    }
+
     getBotInventory(slot) {
         const bot = this.bots.get(slot);
         if (!bot) {
@@ -396,8 +417,8 @@ export class BotManager {
 
     async saveConfig() {
         try {
-            const configPath = (await import('path')).resolve('config.json');
-            await (await import('fs/promises')).writeFile(configPath, JSON.stringify(this.config, null, 4));
+            const configPath = path.resolve('config.json');
+            await fs.writeFile(configPath, JSON.stringify(this.config, null, 4));
             logger.info('Configuration saved');
             return true;
         } catch (error) {

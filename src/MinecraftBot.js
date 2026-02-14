@@ -1,6 +1,32 @@
 import mineflayer from 'mineflayer';
 import logger from './utils/Logger.js';
 
+function formatDuration(ms) {
+    const seconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+
+    if (days > 0) return `${days}g ${hours % 24}s ${minutes % 60}dk`;
+    if (hours > 0) return `${hours}s ${minutes % 60}dk`;
+    if (minutes > 0) return `${minutes}dk ${seconds % 60}sn`;
+    return `${seconds}sn`;
+}
+
+function getMaxDurability(toolName) {
+    const durabilities = {
+        'wooden_pickaxe': 59, 'stone_pickaxe': 131, 'iron_pickaxe': 250,
+        'golden_pickaxe': 32, 'diamond_pickaxe': 1561, 'netherite_pickaxe': 2031,
+        'wooden_axe': 59, 'stone_axe': 131, 'iron_axe': 250,
+        'golden_axe': 32, 'diamond_axe': 1561, 'netherite_axe': 2031,
+        'wooden_sword': 59, 'stone_sword': 131, 'iron_sword': 250,
+        'golden_sword': 32, 'diamond_sword': 1561, 'netherite_sword': 2031,
+        'wooden_shovel': 59, 'stone_shovel': 131, 'iron_shovel': 250,
+        'golden_shovel': 32, 'diamond_shovel': 1561, 'netherite_shovel': 2031,
+    };
+    return durabilities[toolName] || null;
+}
+
 const FOOD_ITEMS = new Set([
     'bread', 'cooked_beef', 'cooked_porkchop', 'cooked_chicken',
     'cooked_mutton', 'cooked_rabbit', 'cooked_cod', 'cooked_salmon',
@@ -30,6 +56,7 @@ export class MinecraftBot {
         this.alertCooldowns = new Map();
         this.onProximityAlert = null;
         this.onLobbyDetected = null;
+        this.onInventoryAlert = null;
         this.tempReconnectDelay = null;
         this.protectionEnabled = this.config.settings.protection?.enabled || false;
         this.lastPosition = null;
@@ -37,6 +64,21 @@ export class MinecraftBot {
         this.lobbyRetryInterval = null;
         this.isEating = false;
         this.eatTimeoutCount = 0;
+        this.inventoryMonitorInterval = null;
+        this.inventoryAlertSent = false;
+        this.toolAlertSent = new Set();
+
+        // Stats tracking
+        this.stats = {
+            connectedAt: null,
+            totalUptime: 0,
+            reconnects: 0,
+            spawnersBroken: 0,
+            alertsTriggered: 0,
+            lobbyEvents: 0,
+            lastDisconnect: null,
+            sessionStart: Date.now()
+        };
 
         this._cachedWhitelist = (this.config.settings.alertWhitelist || []).map(u => u.toLowerCase());
     }
@@ -92,6 +134,10 @@ export class MinecraftBot {
             logger.info(`Slot ${this.slot}: Logged in successfully`);
             this.status = 'online';
             this.isConnecting = false;
+            this.stats.connectedAt = Date.now();
+            if (this.reconnectAttempts > 0) {
+                this.stats.reconnects++;
+            }
             this.reconnectAttempts = 0;
 
             // Sneak to hide name tag
@@ -109,6 +155,7 @@ export class MinecraftBot {
             }
 
             this.startAutoEat();
+            this.startInventoryMonitor();
         });
 
         this.bot.on('spawn', () => {
@@ -148,6 +195,11 @@ export class MinecraftBot {
         this.bot.on('end', () => {
             this.isConnecting = false;
             logger.warn(`Slot ${this.slot}: Connection ended`);
+            this.stats.lastDisconnect = Date.now();
+            if (this.stats.connectedAt) {
+                this.stats.totalUptime += Date.now() - this.stats.connectedAt;
+                this.stats.connectedAt = null;
+            }
             this.cleanup();
 
             if (this.config.settings.autoReconnect && !this.isPaused) {
@@ -180,9 +232,16 @@ export class MinecraftBot {
             const msg = message.toLowerCase();
             if (msg.includes('teleported') || msg.includes('ışınlandı')) {
                 if (!this.isInLobby) {
-                    // Teleported AWAY from home → enter lobby mode
-                    logger.warn(`Slot ${this.slot}: 🏢 TELEPORT DETECTED via chat: "${message}". Entering lobby mode.`);
-                    this.enterLobbyMode();
+                    // Verify with position check before entering lobby mode
+                    setTimeout(() => {
+                        if (this.bot && this.bot.entity && this.lastPosition && !this.isInLobby) {
+                            const dist = this.bot.entity.position.distanceTo(this.lastPosition);
+                            if (dist > 200) {
+                                logger.warn(`Slot ${this.slot}: 🏢 TELEPORT DETECTED via chat: "${message}" (${Math.round(dist)} blocks). Entering lobby mode.`);
+                                this.enterLobbyMode();
+                            }
+                        }
+                    }, 1000);
                 } else {
                     // Already in lobby → might be returning home via /home sp1
                     setTimeout(() => {
@@ -199,7 +258,9 @@ export class MinecraftBot {
     }
 
     enterLobbyMode() {
+        if (this.isInLobby) return; // Already in lobby mode, prevent duplicate triggers
         this.isInLobby = true;
+        this.stats.lobbyEvents++;
 
         // Stop proximity and anti-afk (not needed while teleported)
         if (this.proximityInterval) {
@@ -271,8 +332,19 @@ export class MinecraftBot {
 
                     if (foodItem) {
                         this.isEating = true;
-                        await this.bot.equip(foodItem, 'hand');
-                        await this.bot.consume();
+
+                        // Wrap equip/consume in timeout promise to prevent hanging
+                        const eatTask = async () => {
+                            await this.bot.equip(foodItem, 'hand');
+                            await this.bot.consume();
+                        };
+
+                        const timeoutPromise = new Promise((_, reject) =>
+                            setTimeout(() => reject(new Error('Eat operation timed out')), 5000)
+                        );
+
+                        await Promise.race([eatTask(), timeoutPromise]);
+
                         this.isEating = false;
                         this.eatTimeoutCount = 0;
                         logger.info(`Slot ${this.slot}: Ate ${foodItem.name} (food: ${food} -> ${this.bot.food})`);
@@ -282,7 +354,7 @@ export class MinecraftBot {
                 }
             } catch (error) {
                 this.isEating = false;
-                if (error.message.includes('Promise timed out')) {
+                if (error.message.includes('Promise timed out') || error.message.includes('Eat operation timed out')) {
                     this.eatTimeoutCount++;
                     if (this.eatTimeoutCount <= 3) {
                         logger.warn(`Slot ${this.slot}: Auto-eat timed out (${this.eatTimeoutCount}/3). Retrying in 30s.`);
@@ -339,9 +411,11 @@ export class MinecraftBot {
                             this.executeProtection();
                         }
 
+                        this.stats.alertsTriggered++;
                         let count = 0;
                         const alertLoop = setInterval(() => {
                             count++;
+                            this.stats.alertsTriggered++;
                             if (this.onProximityAlert) {
                                 this.onProximityAlert(entity.username, distance);
                             }
@@ -357,10 +431,13 @@ export class MinecraftBot {
         if (!this.bot || !this.bot.entity) return false;
         const emergencyDistance = this.config.settings.protection?.emergencyDistance || 10;
 
+        const myUsername = this.accountConfig.username;
+        const whitelist = this._cachedWhitelist;
+
         for (const id in this.bot.entities) {
             const entity = this.bot.entities[id];
-            if (entity.type !== 'player' || entity.username === this.accountConfig.username) continue;
-            if (this._cachedWhitelist.includes(entity.username.toLowerCase())) continue;
+            if (entity.type !== 'player' || entity.username === myUsername) continue;
+            if (whitelist.includes(entity.username.toLowerCase())) continue;
             if (!entity.position) continue;
 
             const dist = this.bot.entity.position.distanceTo(entity.position);
@@ -377,8 +454,8 @@ export class MinecraftBot {
         logger.warn(`Slot ${this.slot}: 🛡️ INITIATING SPAWNER PROTECTION PROTOCOL 🛡️`);
 
         const blockName = this.config.settings.protection.blockType || 'spawner';
-        const radius = this.config.settings.protection.radius || 5;
-        const breakDelay = this.config.settings.protection.breakDelay || 1500;
+        const radius = this.config.settings.protection.radius || 64;
+        const breakDelay = this.config.settings.protection.breakDelay || 300;
 
         // Equip pickaxe
         const pickaxe = this.bot.inventory.items().find(item => item.name.includes('pickaxe'));
@@ -456,7 +533,7 @@ export class MinecraftBot {
             }
 
             // Small delay before re-scanning
-            await new Promise(resolve => setTimeout(resolve, 500));
+            await new Promise(resolve => setTimeout(resolve, 200));
         }
 
         if (this.bot) {
@@ -501,6 +578,94 @@ export class MinecraftBot {
             clearInterval(this.lobbyRetryInterval);
             this.lobbyRetryInterval = null;
         }
+    }
+
+    startInventoryMonitor() {
+        if (this.inventoryMonitorInterval) {
+            clearInterval(this.inventoryMonitorInterval);
+        }
+
+        this.inventoryAlertSent = false;
+        this.toolAlertSent.clear();
+
+        this.inventoryMonitorInterval = setInterval(() => {
+            if (!this.bot || this.status !== 'online' || this.isPaused || this.isInLobby) return;
+
+            // Check inventory fullness
+            const totalSlots = 36;
+            const emptySlots = this.bot.inventory.emptySlotCount();
+            const usedSlots = totalSlots - emptySlots;
+            const fillPercent = Math.round((usedSlots / totalSlots) * 100);
+
+            if (emptySlots <= 3 && !this.inventoryAlertSent) {
+                this.inventoryAlertSent = true;
+                const msg = emptySlots === 0
+                    ? `📦 **Slot ${this.slot}:** Envanter **DOLU!** (${usedSlots}/${totalSlots})`
+                    : `📦 **Slot ${this.slot}:** Envanter neredeyse dolu! (${usedSlots}/${totalSlots} - ${emptySlots} slot kaldı)`;
+                if (this.onInventoryAlert) this.onInventoryAlert(msg);
+            } else if (emptySlots > 5) {
+                this.inventoryAlertSent = false;
+            }
+
+            // Check tool durability
+            const tools = this.bot.inventory.items().filter(item =>
+                item.name.includes('pickaxe') || item.name.includes('sword') ||
+                item.name.includes('axe') || item.name.includes('shovel')
+            );
+
+            for (const tool of tools) {
+                if (tool.durabilityUsed !== undefined && tool.maxDurability) {
+                    const remaining = tool.maxDurability - tool.durabilityUsed;
+                    const percent = Math.round((remaining / tool.maxDurability) * 100);
+
+                    if (percent <= 10 && !this.toolAlertSent.has(tool.slot)) {
+                        this.toolAlertSent.add(tool.slot);
+                        const msg = `⚠️ **Slot ${this.slot}:** **${tool.name}** dayanıklılığı çok düşük! (%${percent} - ${remaining}/${tool.maxDurability})`;
+                        if (this.onInventoryAlert) this.onInventoryAlert(msg);
+                    }
+                }
+
+                // nbt-based durability check (mineflayer stores it in nbt)
+                if (tool.nbt?.value?.Damage?.value !== undefined) {
+                    const maxDur = getMaxDurability(tool.name);
+                    if (maxDur) {
+                        const damage = tool.nbt.value.Damage.value;
+                        const remaining = maxDur - damage;
+                        const percent = Math.round((remaining / maxDur) * 100);
+
+                        if (percent <= 10 && !this.toolAlertSent.has(tool.slot)) {
+                            this.toolAlertSent.add(tool.slot);
+                            const msg = `⚠️ **Slot ${this.slot}:** **${tool.name}** dayanıklılığı çok düşük! (%${percent})`;
+                            if (this.onInventoryAlert) this.onInventoryAlert(msg);
+                        }
+                    }
+                }
+            }
+        }, 60000); // Check every 60 seconds
+    }
+
+    getStats() {
+        let currentUptime = this.stats.totalUptime;
+        if (this.stats.connectedAt) {
+            currentUptime += Date.now() - this.stats.connectedAt;
+        }
+
+        const totalSessionTime = Date.now() - this.stats.sessionStart;
+
+        return {
+            slot: this.slot,
+            username: this.accountConfig.username,
+            status: this.status,
+            uptime: currentUptime,
+            uptimeFormatted: formatDuration(currentUptime),
+            sessionTime: totalSessionTime,
+            sessionTimeFormatted: formatDuration(totalSessionTime),
+            reconnects: this.stats.reconnects,
+            spawnersBroken: this.stats.spawnersBroken,
+            alertsTriggered: this.stats.alertsTriggered,
+            lobbyEvents: this.stats.lobbyEvents,
+            lastDisconnect: this.stats.lastDisconnect,
+        };
     }
 
     handleReconnect() {
@@ -707,6 +872,10 @@ export class MinecraftBot {
         if (this.autoEatTimeout) {
             clearTimeout(this.autoEatTimeout);
             this.autoEatTimeout = null;
+        }
+        if (this.inventoryMonitorInterval) {
+            clearInterval(this.inventoryMonitorInterval);
+            this.inventoryMonitorInterval = null;
         }
         this.stopLobbyRetry();
         this.isInLobby = false;
