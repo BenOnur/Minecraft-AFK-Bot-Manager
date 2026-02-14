@@ -315,6 +315,22 @@ export class MinecraftBot {
         }, interval);
     }
 
+    async equipPickaxe() {
+        if (!this.bot) return;
+        const pickaxe = this.bot.inventory.items().find(item => item.name.includes('pickaxe'));
+        if (pickaxe) {
+            const heldItem = this.bot.inventory.slots[this.bot.getEquipmentDestSlot('hand')];
+            if (heldItem && heldItem.name.includes('pickaxe')) return; // Already holding
+
+            try {
+                await this.bot.equip(pickaxe, 'hand');
+                logger.info(`Slot ${this.slot}: Equipped ${pickaxe.name}`);
+            } catch (error) {
+                logger.error(`Slot ${this.slot}: Failed to equip pickaxe: ${error.message}`);
+            }
+        }
+    }
+
     async startAutoEat() {
         const checkInterval = 5000;
 
@@ -327,6 +343,11 @@ export class MinecraftBot {
             }
 
             try {
+                // Ensure pickaxe is held if not eating
+                if (!this.isEating) {
+                    await this.equipPickaxe();
+                }
+
                 const food = this.bot.food;
 
                 if (food < 14) {
@@ -352,6 +373,9 @@ export class MinecraftBot {
                         this.isEating = false;
                         this.eatTimeoutCount = 0;
                         logger.info(`Slot ${this.slot}: Ate ${foodItem.name} (food: ${food} -> ${this.bot.food})`);
+
+                        // Re-equip pickaxe immediately after eating
+                        await this.equipPickaxe();
                     } else {
                         logger.warn(`Slot ${this.slot}: Hungry (food: ${food}) but no food in inventory!`);
                     }
@@ -369,6 +393,8 @@ export class MinecraftBot {
                     logger.error(`Slot ${this.slot}: Auto-eat error: ${error.message}`);
                     nextDelay = 10000;
                 }
+                // Attempt to re-equip pickaxe even if eat failed
+                await this.equipPickaxe();
             } finally {
                 this.autoEatTimeout = setTimeout(checkFood, nextDelay);
             }
@@ -466,7 +492,7 @@ export class MinecraftBot {
 
         const blockName = this.config.settings.protection.blockType || 'spawner';
         const radius = this.config.settings.protection.radius || 64;
-        const breakDelay = this.config.settings.protection.breakDelay || 0;
+        const breakDelay = this.config.settings.protection.breakDelay || 300;
 
         // Equip pickaxe
         const pickaxe = this.bot.inventory.items().find(item => item.name.includes('pickaxe'));
@@ -537,16 +563,14 @@ export class MinecraftBot {
                     totalBroken++;
                     logger.info(`Slot ${this.slot}: Broken ${block.name} (${totalBroken} total)`);
 
-                    if (breakDelay > 0) {
-                        await new Promise(resolve => setTimeout(resolve, breakDelay));
-                    }
+                    await new Promise(resolve => setTimeout(resolve, breakDelay));
                 } catch (err) {
                     logger.error(`Slot ${this.slot}: Failed to break block at ${pos}: ${err.message}`);
                 }
             }
 
-            // Minimal delay before re-scanning to prevent CPU spike but keep it fast
-            await new Promise(resolve => setTimeout(resolve, 50));
+            // Small delay before re-scanning
+            await new Promise(resolve => setTimeout(resolve, 200));
         }
 
         if (this.bot) {
