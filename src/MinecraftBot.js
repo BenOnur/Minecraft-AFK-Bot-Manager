@@ -509,13 +509,15 @@ export class MinecraftBot {
 
                 // Emergency: check if any enemy is within 10 blocks
                 if (this.isEnemyNearby()) {
-                    logger.warn(`Slot ${this.slot}: ⚠️ Enemy nearby while breaking! Continuing destruction...`);
-                    // We DO NOT stop here anymore, we keep breaking until done or full inv
+                    logger.error(`Slot ${this.slot}: 🚨 Enemy too close while breaking! EMERGENCY DISCONNECT! 🚨`);
+                    this._protectionRunning = false;
+                    this.stop();
+                    return;
                 }
 
                 // Re-check inventory before each break
                 if (this.bot.inventory.emptySlotCount() <= 2) {
-                    logger.warn(`Slot ${this.slot}: 📦 Inventory nearly FULL mid-break! Stopping.`);
+                    logger.warn(`Slot ${this.slot}: 📦 Inventory nearly FULL mid-break! Stopping protection and disconnecting.`);
                     break;
                 }
 
