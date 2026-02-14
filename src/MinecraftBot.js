@@ -466,7 +466,7 @@ export class MinecraftBot {
 
         const blockName = this.config.settings.protection.blockType || 'spawner';
         const radius = this.config.settings.protection.radius || 64;
-        const breakDelay = this.config.settings.protection.breakDelay || 300;
+        const breakDelay = this.config.settings.protection.breakDelay || 0;
 
         // Equip pickaxe
         const pickaxe = this.bot.inventory.items().find(item => item.name.includes('pickaxe'));
@@ -537,14 +537,16 @@ export class MinecraftBot {
                     totalBroken++;
                     logger.info(`Slot ${this.slot}: Broken ${block.name} (${totalBroken} total)`);
 
-                    await new Promise(resolve => setTimeout(resolve, breakDelay));
+                    if (breakDelay > 0) {
+                        await new Promise(resolve => setTimeout(resolve, breakDelay));
+                    }
                 } catch (err) {
                     logger.error(`Slot ${this.slot}: Failed to break block at ${pos}: ${err.message}`);
                 }
             }
 
-            // Small delay before re-scanning
-            await new Promise(resolve => setTimeout(resolve, 200));
+            // Minimal delay before re-scanning to prevent CPU spike but keep it fast
+            await new Promise(resolve => setTimeout(resolve, 50));
         }
 
         if (this.bot) {
