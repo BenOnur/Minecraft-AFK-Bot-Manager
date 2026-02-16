@@ -207,7 +207,7 @@ export class DiscordBot {
     }
 
     async sendAlert(message) {
-        if (!this.client || !this.config.discord.allowedUsers) return;
+        if (!this.client || !this.client.isReady() || !this.config.discord.allowedUsers) return;
 
         for (const userId of this.config.discord.allowedUsers) {
             try {

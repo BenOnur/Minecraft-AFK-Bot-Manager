@@ -218,8 +218,8 @@ export class MinecraftBot {
 
             const reasonStr = typeof reason === 'string' ? reason : JSON.stringify(reason);
             if (reasonStr.includes('already online') || reasonStr.includes('already connected')) {
-                logger.warn(`Slot ${this.slot}: Detected 'already online' error. Waiting 6s before reconnect.`);
-                this.tempReconnectDelay = 6000;
+                logger.warn(`Slot ${this.slot}: Detected 'already online' error. Waiting 30s before reconnect.`);
+                this.tempReconnectDelay = 30000;
             }
         });
 
@@ -234,6 +234,14 @@ export class MinecraftBot {
 
             // Detect teleportation via chat (e.g., server /spawn, /warp)
             const msg = message.toLowerCase();
+
+            // CRITICAL: Detect "Servers are updating" message which teleports players to lobby/hub
+            if (msg.includes('servers are updating') || msg.includes('do not teleport')) {
+                logger.warn(`Slot ${this.slot}: 🚨 SERVER UPDATE DETECTED! Entering lobby mode immediately to prevent false alarms.`);
+                this.enterLobbyMode();
+                return;
+            }
+
             if (msg.includes('teleported') || msg.includes('ışınlandı')) {
                 if (!this.isInLobby) {
                     // Verify with position check before entering lobby mode
@@ -486,6 +494,22 @@ export class MinecraftBot {
     async executeProtection() {
         if (!this.bot || this.status !== 'online') return;
         if (this._protectionRunning) return; // Prevent multiple concurrent runs
+
+        // Safety check: Deke before shooting
+        if (this.isInLobby) {
+            logger.warn(`Slot ${this.slot}: 🛡️ Protection triggered but bot is in LOBBY mode. Aborting.`);
+            return;
+        }
+
+        // 2-second safety delay to allow for "Server Updating" messages or position updates to arrive
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        // Re-check lobby status after delay
+        if (this.isInLobby) {
+            logger.warn(`Slot ${this.slot}: 🛡️ Protection aborted (Lobby detected after delay).`);
+            return;
+        }
+
         this._protectionRunning = true;
 
         logger.warn(`Slot ${this.slot}: 🛡️ INITIATING SPAWNER PROTECTION PROTOCOL 🛡️`);
@@ -510,6 +534,7 @@ export class MinecraftBot {
         this.bot.setControlState('sneak', true);
 
         let totalBroken = 0;
+        let initialScan = true;
 
         // Loop: keep scanning and breaking until no spawners remain or inventory full
         while (this.bot && this.status === 'online') {
@@ -528,9 +553,20 @@ export class MinecraftBot {
             });
 
             if (blocks.length === 0) {
+                if (initialScan) {
+                    // CRITICAL FIX: If 0 spawners found immediately, it's likely a false alarm (lobby/hub).
+                    // Do NOT disconnect.
+                    logger.warn(`Slot ${this.slot}: ⚠️ Protection scan found 0 ${blockName}s. Possible false alarm (Lobby?). Aborting protection without disconnect.`);
+                    this._protectionRunning = false;
+                    this.bot.setControlState('sneak', false);
+                    return;
+                }
+
                 logger.info(`Slot ${this.slot}: ✅ All ${blockName}s destroyed (${totalBroken} total). Disconnecting.`);
                 break;
             }
+
+            initialScan = false;
 
             logger.info(`Slot ${this.slot}: Found ${blocks.length} ${blockName}(s) remaining. Breaking...`);
 
@@ -576,6 +612,8 @@ export class MinecraftBot {
         if (this.bot) {
             this.bot.setControlState('sneak', false);
         }
+
+        // Only disconnect if we actually ran the logic and finished (not early returned)
         logger.info(`Slot ${this.slot}: Protection protocol complete. Disconnecting.`);
         this._protectionRunning = false;
         this.stop();
@@ -715,18 +753,16 @@ export class MinecraftBot {
             return;
         }
 
-        if (this.reconnectAttempts >= this.config.settings.maxReconnectAttempts) {
-            logger.error(`Slot ${this.slot}: Max reconnect attempts reached`);
-            this.status = 'failed';
-            return;
-        }
-
-        this.reconnectAttempts++;
-        const delay = this.tempReconnectDelay || this.config.settings.reconnectDelay || 5000;
-
+        let delay = this.tempReconnectDelay || this.config.settings.reconnectDelay || 5000;
         this.tempReconnectDelay = null;
 
-        logger.info(`Slot ${this.slot}: Reconnecting in ${delay / 1000}s (attempt ${this.reconnectAttempts}/${this.config.settings.maxReconnectAttempts})`);
+        if (this.reconnectAttempts >= this.config.settings.maxReconnectAttempts) {
+            logger.warn(`Slot ${this.slot}: Max reconnect attempts (${this.config.settings.maxReconnectAttempts}) reached. Entering permanent retry mode (60s interval).`);
+            delay = 60000; // 60 seconds sticky interval
+        } else {
+            this.reconnectAttempts++;
+            logger.info(`Slot ${this.slot}: Reconnecting in ${delay / 1000}s (attempt ${this.reconnectAttempts}/${this.config.settings.maxReconnectAttempts})`);
+        }
 
         this.reconnectTimeout = setTimeout(() => {
             if (!this.isManuallyStopped) {
