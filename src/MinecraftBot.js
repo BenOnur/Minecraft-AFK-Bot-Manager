@@ -113,6 +113,7 @@ export class MinecraftBot {
                 version: this.config.minecraft.server.version || false,
                 hideErrors: false,
                 profilesFolder: `./sessions/${this.accountConfig.username || 'temp_' + Date.now()}`,
+                checkTimeoutInterval: 60000, // Keep-alive kontrolünü daha toleranslı yap
                 onMsaCode: (data) => {
                     if (this.accountConfig.onMsaCode) {
                         this.accountConfig.onMsaCode(data);
@@ -326,20 +327,46 @@ export class MinecraftBot {
     }
 
     startAntiAfk() {
-        const baseInterval = this.config.settings.antiAfkInterval || 30000;
+        if (this.antiAfkInterval) {
+            clearTimeout(this.antiAfkInterval);
+            this.antiAfkInterval = null;
+        }
 
-        // Rastgele bir gecikme ekle (5-10 saniye arası ek yük)
-        const jitter = Math.random() * 5000 + (this.slot * 1000);
-        const interval = baseInterval + jitter;
-
-        this.antiAfkInterval = setInterval(() => {
-            if (this.bot && this.status === 'online' && !this.isPaused && !this.isEating) {
-                this.bot.setControlState('jump', true);
-                setTimeout(() => {
-                    if (this.bot) this.bot.setControlState('jump', false);
-                }, 100 + Math.random() * 50); // Zıplama süresinde hafif rastgelelik
+        const runTick = async () => {
+            if (!this.bot || this.status !== 'online' || this.isPaused || this.isEating) {
+                this.antiAfkInterval = setTimeout(runTick, 10000);
+                return;
             }
-        }, interval);
+
+            try {
+                // 1. Rastgele Zıplama (%70 şans)
+                if (Math.random() > 0.3) {
+                    this.bot.setControlState('jump', true);
+                    setTimeout(() => {
+                        if (this.bot) this.bot.setControlState('jump', false);
+                    }, 100 + Math.random() * 100);
+                }
+
+                // 2. Hafif Rastgele Bakış Değişikliği (%50 şans)
+                if (Math.random() > 0.5) {
+                    const currentYaw = this.bot.entity.yaw;
+                    const currentPitch = this.bot.entity.pitch;
+                    const newYaw = currentYaw + (Math.random() - 0.5) * 0.2;
+                    const newPitch = currentPitch + (Math.random() - 0.5) * 0.1;
+                    await this.bot.look(newYaw, newPitch, true);
+                }
+
+                // 3. Rastgele Bekleme Süresi (20 - 45 saniye arası)
+                const baseDelay = this.config.settings.antiAfkInterval || 30000;
+                const randomDelay = baseDelay * (0.8 + Math.random() * 0.7);
+                this.antiAfkInterval = setTimeout(runTick, randomDelay);
+
+            } catch (err) {
+                this.antiAfkInterval = setTimeout(runTick, 10000);
+            }
+        };
+
+        this.antiAfkInterval = setTimeout(runTick, 5000 + (this.slot * 2000));
     }
 
     async equipPickaxe() {
@@ -963,7 +990,7 @@ export class MinecraftBot {
 
     cleanup() {
         if (this.antiAfkInterval) {
-            clearInterval(this.antiAfkInterval);
+            clearTimeout(this.antiAfkInterval);
             this.antiAfkInterval = null;
         }
         if (this.proximityInterval) {
