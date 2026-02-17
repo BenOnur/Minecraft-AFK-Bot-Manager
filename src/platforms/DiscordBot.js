@@ -42,6 +42,12 @@ export class DiscordBot {
 
             this.client.on(Events.ClientReady, () => {
                 logger.info(`Discord bot logged in as ${this.client.user.tag}`);
+
+                // Otomatik log başlatma
+                if (this.config.discord.logChannelId) {
+                    logger.info(`Discord: Otomatik log akışı başlatılıyor (Kanal: ${this.config.discord.logChannelId})`);
+                    this.startLogStream(this.config.discord.logChannelId);
+                }
             });
 
             this.client.on('messageCreate', async (message) => {
@@ -53,10 +59,11 @@ export class DiscordBot {
 
                     if (this.isLogStreaming) {
                         this.stopLogStream();
-                        await message.reply('🛑 Log streaming stopped.');
+                        await message.reply('🛑 Log akışı durduruldu.');
                     } else {
-                        this.startLogStream(message.channel.id);
-                        await message.reply('▶️ Log streaming started in this channel.');
+                        const channelId = this.config.discord.logChannelId || message.channel.id;
+                        this.startLogStream(channelId);
+                        await message.reply(`▶️ Log akışı başlatıldı (Kanal: <#${channelId}>).`);
                     }
                     return;
                 }
