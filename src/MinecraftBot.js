@@ -326,14 +326,18 @@ export class MinecraftBot {
     }
 
     startAntiAfk() {
-        const interval = this.config.settings.antiAfkInterval || 30000;
+        const baseInterval = this.config.settings.antiAfkInterval || 30000;
+
+        // Rastgele bir gecikme ekle (5-10 saniye arası ek yük)
+        const jitter = Math.random() * 5000 + (this.slot * 1000);
+        const interval = baseInterval + jitter;
 
         this.antiAfkInterval = setInterval(() => {
             if (this.bot && this.status === 'online' && !this.isPaused && !this.isEating) {
                 this.bot.setControlState('jump', true);
                 setTimeout(() => {
                     if (this.bot) this.bot.setControlState('jump', false);
-                }, 100);
+                }, 100 + Math.random() * 50); // Zıplama süresinde hafif rastgelelik
             }
         }, interval);
     }
@@ -358,7 +362,7 @@ export class MinecraftBot {
         const checkInterval = 5000;
 
         const checkFood = async () => {
-            let nextDelay = checkInterval;
+            let nextDelay = checkInterval + (this.slot * 200); // Slotlar arası kaydırma
 
             if (!this.bot || this.status !== 'online' || this.isPaused) {
                 this.autoEatTimeout = setTimeout(checkFood, checkInterval);
@@ -427,30 +431,32 @@ export class MinecraftBot {
     }
 
     startProximityCheck() {
+        // Kontrol aralığını 1 saniyeden 2.5 saniyeye çıkarıyoruz (Yük azaltma)
+        const checkInterval = 2500 + (this.slot * 100);
+
         this.proximityInterval = setInterval(() => {
-            if (!this.bot || this.status !== 'online' || this.isPaused || this.isInLobby) return;
+            if (!this.bot || this.status === 'online' || this.isPaused || this.isInLobby) return;
 
             const alertDistance = this.config.settings.alertDistance || 96;
             const cooldown = this.config.settings.alertCooldown || 300000;
             const now = Date.now();
 
-            for (const id in this.bot.entities) {
-                const entity = this.bot.entities[id];
-                if (entity.type !== 'player' || entity.username === this.accountConfig.username) continue;
-                if (this._cachedWhitelist.includes(entity.username.toLowerCase())) continue;
-                if (!entity.position || !this.bot.entity) continue;
+            // Performans için oyuncuları önceden filtrele
+            const players = Object.values(this.bot.entities).filter(e =>
+                e.type === 'player' &&
+                e.username !== this.accountConfig.username &&
+                !this._cachedWhitelist.includes(e.username.toLowerCase()) &&
+                e.position && this.bot.entity
+            );
 
+            for (const entity of players) {
                 const distance = this.bot.entity.position.distanceTo(entity.position);
 
-                // Emergency disconnect: player within 10 blocks (only if NOT whitelisted) -> disconnect to save inventory
+                // Emergency disconnect
                 const emergencyDistance = this.config.settings.protection?.emergencyDistance || 10;
-
-                // Double check whitelist here just to be safe (already scanned above but good for robustness)
-                if (distance <= emergencyDistance && !this._cachedWhitelist.includes(entity.username.toLowerCase())) {
-                    logger.error(`Slot ${this.slot}: 🚨 EMERGENCY: ${entity.username} at ${Math.round(distance)}m! DISCONNECTING to save inventory! 🚨`);
-                    if (this.onProximityAlert) {
-                        this.onProximityAlert(entity.username, distance);
-                    }
+                if (distance <= emergencyDistance) {
+                    logger.error(`Slot ${this.slot}: 🚨 EMERGENCY: ${entity.username} at ${Math.round(distance)}m! DISCONNECTING! 🚨`);
+                    if (this.onProximityAlert) this.onProximityAlert(entity.username, distance);
                     this._protectionRunning = false;
                     this.stop();
                     return;
@@ -458,33 +464,20 @@ export class MinecraftBot {
 
                 if (distance <= alertDistance) {
                     const lastAlert = this.alertCooldowns.get(entity.username) || 0;
-
                     if (now - lastAlert > cooldown) {
                         this.alertCooldowns.set(entity.username, now);
 
-                        // Protection trigger
                         if (this.config.settings.protection && this.protectionEnabled) {
-                            logger.info(`Slot ${this.slot}: Threat detected (${entity.username} at ${Math.round(distance)}m). Triggering protection.`);
+                            logger.info(`Slot ${this.slot}: Threat detected (${entity.username} at ${Math.round(distance)}m).`);
                             this.executeProtection();
                         }
 
                         this.stats.alertsTriggered++;
-                        let count = 0;
-                        const alertLoop = setInterval(() => {
-                            count++;
-                            // Only valid if bot still exists
-                            if (this.bot) {
-                                this.stats.alertsTriggered++;
-                                if (this.onProximityAlert) {
-                                    this.onProximityAlert(entity.username, distance);
-                                }
-                            }
-                            if (count >= 5) clearInterval(alertLoop);
-                        }, 1000);
+                        if (this.onProximityAlert) this.onProximityAlert(entity.username, distance);
                     }
                 }
             }
-        }, 1000);
+        }, checkInterval);
     }
 
     isEnemyNearby() {
