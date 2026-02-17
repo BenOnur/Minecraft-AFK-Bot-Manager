@@ -330,13 +330,13 @@ export class BotManager {
     }
 
 
-    sendMessage(slots, message) {
+    async sendMessage(slots, message) {
         const results = [];
 
         for (const slot of slots) {
             const bot = this.bots.get(slot);
             if (bot) {
-                const success = bot.sendChat(message);
+                const success = await bot.sendChat(message);
                 results.push({ slot, success });
             } else {
                 results.push({ slot, success: false, error: 'Slot not found' });
@@ -346,9 +346,9 @@ export class BotManager {
         return results;
     }
 
-    sendMessageToAll(message) {
+    async sendMessageToAll(message) {
         const slots = Array.from(this.bots.keys());
-        return this.sendMessage(slots, message);
+        return await this.sendMessage(slots, message);
     }
 
     getBotStatus(slot) {

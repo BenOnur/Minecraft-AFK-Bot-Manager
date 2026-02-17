@@ -97,7 +97,7 @@ export class CommandHandler {
             return { success: false, message: validation.error };
         }
 
-        const results = this.botManager.sendMessage(validation.slots, message);
+        const results = await this.botManager.sendMessage(validation.slots, message);
         const successful = results.filter(r => r.success).length;
 
         return {
@@ -114,7 +114,7 @@ export class CommandHandler {
         }
 
         const message = args.join(' ');
-        const results = this.botManager.sendMessageToAll(message);
+        const results = await this.botManager.sendMessageToAll(message);
         const successful = results.filter(r => r.success).length;
 
         return {

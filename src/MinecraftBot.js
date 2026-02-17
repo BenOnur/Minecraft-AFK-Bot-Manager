@@ -266,6 +266,12 @@ export class MinecraftBot {
                     }, 1500);
                 }
             }
+
+            // Improve detection for "Your region started back up"
+            if (msg.includes('region started back up') || msg.includes('we will teleport you back')) {
+                logger.info(`Slot ${this.slot}: 🔄 Server region restarted! Teleport pending... Stopping lobby retry loops.`);
+                this.stopLobbyRetry(); // Stop spamming /home sp1 so we don't interfere with server teleport
+            }
         });
     }
 
@@ -300,6 +306,15 @@ export class MinecraftBot {
 
         if (this.onLobbyDetected) {
             this.onLobbyDetected(false);
+        }
+
+        // Ensure bot sneaks after teleport
+        if (this.bot) {
+            this.bot.setControlState('sneak', true);
+            // Double ensure after a delay just in case server lags
+            setTimeout(() => {
+                if (this.bot) this.bot.setControlState('sneak', true);
+            }, 2000);
         }
 
         if (this.config.settings.antiAfkEnabled) {
@@ -878,15 +893,29 @@ export class MinecraftBot {
         });
     }
 
-    sendChat(message) {
+    async sendChat(message) {
         if (!this.bot || this.status !== 'online' || this.isPaused) {
             logger.warn(`Slot ${this.slot}: Cannot send chat message - bot not ready`);
             return false;
         }
 
         try {
+            // Check if sneaking
+            const isSneaking = this.bot.getControlState('sneak');
+
+            if (isSneaking) {
+                this.bot.setControlState('sneak', false);
+                await new Promise(resolve => setTimeout(resolve, 100)); // Wait for server to process unsneak
+            }
+
             this.bot.chat(message);
             logger.info(`Slot ${this.slot}: Sent message: ${message}`);
+
+            if (isSneaking) {
+                await new Promise(resolve => setTimeout(resolve, 100)); // Wait for message to be sent
+                this.bot.setControlState('sneak', true);
+            }
+
             return true;
         } catch (error) {
             logger.error(`Slot ${this.slot}: Failed to send message: ${error.message}`);
