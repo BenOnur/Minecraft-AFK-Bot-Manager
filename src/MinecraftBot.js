@@ -84,7 +84,8 @@ export class MinecraftBot {
             sessionStart: Date.now()
         };
 
-        this._cachedWhitelist = (this.config.settings.alertWhitelist || []).map(u => u.toLowerCase());
+        // Removed cached whitelist to allow dynamic updates from config in memory
+        // this._cachedWhitelist = (this.config.settings.alertWhitelist || []).map(u => u.toLowerCase());
     }
 
     async start() {
@@ -469,10 +470,12 @@ export class MinecraftBot {
             const now = Date.now();
 
             // Performans için oyuncuları önceden filtrele
+            const currentWhitelist = (this.config.settings.alertWhitelist || []).map(u => u.toLowerCase());
+
             const players = Object.values(this.bot.entities).filter(e =>
                 e.type === 'player' &&
                 e.username !== this.accountConfig.username &&
-                !this._cachedWhitelist.includes(e.username.toLowerCase()) &&
+                !currentWhitelist.includes(e.username.toLowerCase()) &&
                 e.position && this.bot.entity
             );
 
@@ -512,12 +515,12 @@ export class MinecraftBot {
         const emergencyDistance = this.config.settings.protection?.emergencyDistance || 10;
 
         const myUsername = this.accountConfig.username;
-        const whitelist = this._cachedWhitelist;
+        const currentWhitelist = (this.config.settings.alertWhitelist || []).map(u => u.toLowerCase());
 
         for (const id in this.bot.entities) {
             const entity = this.bot.entities[id];
             if (entity.type !== 'player' || entity.username === myUsername) continue;
-            if (whitelist.includes(entity.username.toLowerCase())) continue;
+            if (currentWhitelist.includes(entity.username.toLowerCase())) continue;
             if (!entity.position) continue;
 
             const dist = this.bot.entity.position.distanceTo(entity.position);
