@@ -145,6 +145,7 @@ export class MinecraftBot {
                 this.stats.reconnects++;
             }
             this.reconnectAttempts = 0;
+            this.isInLobby = false; // Reset lobby state on login to prevent stale state
 
             // Sneak to hide name tag
             this.bot.setControlState('sneak', true);
@@ -273,6 +274,29 @@ export class MinecraftBot {
             if (msg.includes('region started back up') || msg.includes('we will teleport you back')) {
                 logger.info(`Slot ${this.slot}: 🔄 Server region restarted! Teleport pending... Stopping lobby retry loops.`);
                 this.stopLobbyRetry(); // Stop spamming /home sp1 so we don't interfere with server teleport
+            }
+        });
+
+        this.bot.on('forcedMove', () => {
+            // Standard Event: Forced Move (Teleport)
+            // This is more reliable than chat messages for detecting return from lobby
+            if (this.isInLobby && this.lastPosition && this.bot && this.bot.entity) {
+                const currentPos = this.bot.entity.position;
+                const distToHome = this.lastPosition.distanceTo(currentPos);
+
+                if (distToHome < 50) {
+                    logger.info(`Slot ${this.slot}: ⚡ ForcedMove detected return to base (${Math.round(distToHome)} blocks away). Exiting lobby mode.`);
+                    this.exitLobbyMode();
+                }
+            } else if (!this.isInLobby && this.lastPosition && this.bot && this.bot.entity) {
+                // Also check for unexpected teleports AWAY from base via forcedMove
+                const currentPos = this.bot.entity.position;
+                const dist = this.lastPosition.distanceTo(currentPos);
+
+                if (dist > 200) {
+                    logger.warn(`Slot ${this.slot}: ⚡ ForcedMove detected TELEPORT AWAY (${Math.round(dist)} blocks). Entering lobby mode.`);
+                    this.enterLobbyMode();
+                }
             }
         });
     }
@@ -687,6 +711,17 @@ export class MinecraftBot {
 
             logger.info(`Slot ${this.slot}: Retrying /home sp1...`);
             this.bot.chat('/home sp1');
+
+            // Fallback check: sometimes we might have already been teleported back but missed the event
+            if (this.bot && this.bot.entity && this.lastPosition) {
+                const currentPos = this.bot.entity.position;
+                const distToHome = this.lastPosition.distanceTo(currentPos);
+
+                if (distToHome < 50) {
+                    logger.info(`Slot ${this.slot}: 🔄 Lobby Retry Loop detected we are back at base (${Math.round(distToHome)}m). Exiting lobby mode.`);
+                    this.exitLobbyMode();
+                }
+            }
         }, 30000);
     }
 
