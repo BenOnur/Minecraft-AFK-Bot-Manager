@@ -462,7 +462,7 @@ export class MinecraftBot {
         const checkInterval = 2500 + (this.slot * 100);
 
         this.proximityInterval = setInterval(() => {
-            if (!this.bot || this.status === 'online' || this.isPaused || this.isInLobby) return;
+            if (!this.bot || this.status !== 'online' || this.isPaused || this.isInLobby) return;
 
             const alertDistance = this.config.settings.alertDistance || 96;
             const cooldown = this.config.settings.alertCooldown || 300000;
