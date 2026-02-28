@@ -103,6 +103,14 @@ export class TelegramBot {
         }
     }
 
+    // Escape HTML special characters to prevent parse errors
+    escapeHtml(text) {
+        return String(text)
+            .replace(/&/g, '&')
+            .replace(/</g, '<')
+            .replace(/>/g, '>');
+    }
+
     async sendResponse(ctx, result) {
         if (!result) {
             await ctx.reply('❌ No response');
@@ -110,7 +118,8 @@ export class TelegramBot {
         }
 
         let message = result.success ? '✅ ' : '❌ ';
-        message += result.message;
+        // Convert **bold** markdown to HTML <b> tags for Telegram
+        message += this.mdToHtml(result.message);
 
         // Status or inventory formatting
         if (result.data) {
@@ -126,14 +135,28 @@ export class TelegramBot {
             }
         }
 
-        const options = result.parseOptions || { parse_mode: 'Markdown' };
-        await ctx.reply(message, options);
+        const options = result.parseOptions || { parse_mode: 'HTML' };
+        try {
+            await ctx.reply(message, options);
+        } catch (err) {
+            // Fallback: send without formatting if parse error
+            logger.error(`Telegram reply error: ${err.message}`);
+            await ctx.reply(message.replace(/<[^>]+>/g, ''));
+        }
+    }
+
+    // Convert **bold** and `code` markdown to HTML for Telegram
+    mdToHtml(text) {
+        if (!text) return '';
+        return this.escapeHtml(text)
+            .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
+            .replace(/`(.+?)`/g, '<code>$1</code>');
     }
 
     formatStatusLine(status) {
         const emoji = this.getStatusEmoji(status.status);
         const pausedText = status.isPaused ? ' ⏸' : '';
-        let line = `${emoji} **Slot ${status.slot}**${pausedText} — ${status.username}`;
+        let line = `${emoji} <b>Slot ${status.slot}</b>${pausedText} — ${this.escapeHtml(status.username)}`;
         if (status.health !== undefined) {
             line += ` | 💗 ${Math.round(status.health)} 🍗 ${Math.round(status.food)}`;
         }
@@ -142,42 +165,42 @@ export class TelegramBot {
 
     formatStatusDetailed(status) {
         const emoji = this.getStatusEmoji(status.status);
-        let text = `${emoji} **Slot ${status.slot}** — ${status.username}\n`;
+        let text = `${emoji} <b>Slot ${status.slot}</b> — ${this.escapeHtml(status.username)}\n`;
         text += `━━━━━━━━━━━━━━━━━━━━\n`;
-        text += `📶 Durum: **${status.status}**\n`;
-        text += `⏸ Duraklatıldı: **${status.isPaused ? 'Evet' : 'Hayır'}**\n`;
+        text += `📶 Durum: <b>${this.escapeHtml(status.status)}</b>\n`;
+        text += `⏸ Duraklatıldı: <b>${status.isPaused ? 'Evet' : 'Hayır'}</b>\n`;
 
         if (status.health !== undefined) {
-            const healthBar = '❤️'.repeat(Math.round(status.health / 2));
-            text += `💗 Can: **${Math.round(status.health)}/20** ${healthBar}\n`;
-            text += `🍗 Açlık: **${Math.round(status.food)}/20**\n`;
+            const healthBar = '❤️'.repeat(Math.min(10, Math.round(status.health / 2)));
+            text += `💗 Can: <b>${Math.round(status.health)}/20</b> ${healthBar}\n`;
+            text += `🍗 Açlık: <b>${Math.round(status.food)}/20</b>\n`;
         }
 
         if (status.position) {
-            text += `📍 Konum: \`${Math.floor(status.position.x)}, ${Math.floor(status.position.y)}, ${Math.floor(status.position.z)}\`\n`;
+            text += `📍 Konum: <code>${Math.floor(status.position.x)}, ${Math.floor(status.position.y)}, ${Math.floor(status.position.z)}</code>\n`;
         }
 
         if (status.reconnectAttempts > 0) {
-            text += `🔄 Reconnect Denemesi: **${status.reconnectAttempts}**\n`;
+            text += `🔄 Reconnect Denemesi: <b>${status.reconnectAttempts}</b>\n`;
         }
 
         return text;
     }
 
     formatInventory(items) {
-        if (items.length === 0) return 'Inventory is empty';
+        if (items.length === 0) return 'Envanter boş';
 
         const getCategory = (slot) => {
             if (slot === 45) return '🛡️ Off-hand';
-            if (slot >= 5 && slot <= 8) return '👕 Armor';
+            if (slot >= 5 && slot <= 8) return '👕 Zırh';
             if (slot >= 36 && slot <= 44) return '🔥 Hotbar';
-            return '🎒 Main Inventory';
+            return '🎒 Ana Envanter';
         };
 
         const getSlotName = (slot) => {
             if (slot >= 36 && slot <= 44) return `Hotbar ${slot - 35}`;
             if (slot === 45) return 'Off-hand';
-            const armorNames = { 5: 'Helmet', 6: 'Chestplate', 7: 'Leggings', 8: 'Boots' };
+            const armorNames = { 5: 'Kask', 6: 'Zırh', 7: 'Pantolon', 8: 'Bot' };
             return armorNames[slot] || `Slot ${slot}`;
         };
 
@@ -189,18 +212,18 @@ export class TelegramBot {
             categories[cat].push(item);
         }
 
-        let text = '📦 **Inventory Details**\n';
+        let text = '📦 <b>Envanter Detayları</b>\n';
 
         for (const [cat, catItems] of Object.entries(categories)) {
             if (catItems.length > 0) {
-                text += `\n**${cat}**\n`;
+                text += `\n<b>${cat}</b>\n`;
                 for (const item of catItems) {
-                    text += `• ${item.count}x ${item.name} _(${getSlotName(item.slot)})_\n`;
+                    text += `• ${item.count}x <code>${this.escapeHtml(item.name)}</code> (${getSlotName(item.slot)})\n`;
                 }
             }
         }
 
-        if (text === '📦 **Inventory Details**\n') return 'Inventory is empty';
+        if (text === '📦 <b>Envanter Detayları</b>\n') return 'Envanter boş';
 
         return text;
     }

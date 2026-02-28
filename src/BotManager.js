@@ -17,10 +17,18 @@ export class BotManager {
         this.discordBot = discordBot;
     }
 
+    // Convert **bold** markdown to HTML <b> tags for Telegram
+    _mdToHtml(text) {
+        return String(text)
+            .replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>')
+            .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+    }
+
     broadcastMessage(message) {
         if (this.telegramBot && this.telegramBot.bot) {
+            const htmlMessage = this._mdToHtml(message);
             for (const userId of this.config.telegram.allowedUsers) {
-                this.telegramBot.bot.telegram.sendMessage(userId, message).catch(() => { });
+                this.telegramBot.bot.telegram.sendMessage(userId, htmlMessage, { parse_mode: 'HTML' }).catch(() => { });
             }
         }
         if (this.discordBot) {
@@ -29,15 +37,30 @@ export class BotManager {
     }
 
     handleProximityAlert(slot, player, distance) {
-        const message = `⚠️ **PROXIMITY ALERT** ⚠️\nSlot ${slot} detected player **${player}** at **${Math.round(distance)}** blocks!`;
+        const message = `⚠️ <b>PROXIMITY ALERT</b> ⚠️\nSlot ${slot} — Oyuncu <b>${player}</b> <b>${Math.round(distance)}</b> blok uzakta!`;
         logger.warn(`Slot ${slot}: Proximity alert - ${player} (${Math.round(distance)} blocks)`);
-        this.broadcastMessage(message);
+        // Send HTML directly to Telegram, plain text to Discord
+        if (this.telegramBot && this.telegramBot.bot) {
+            for (const userId of this.config.telegram.allowedUsers) {
+                this.telegramBot.bot.telegram.sendMessage(userId, message, { parse_mode: 'HTML' }).catch(() => { });
+            }
+        }
+        if (this.discordBot) {
+            this.discordBot.sendAlert(`⚠️ **PROXIMITY ALERT** ⚠️\nSlot ${slot} — Oyuncu **${player}** **${Math.round(distance)}** blok uzakta!`);
+        }
     }
 
     handleConnect(slot, host, version) {
-        const message = `[${slot}] connected -> (${host}) (${version})`;
-        logger.info(message);
-        this.broadcastMessage(message);
+        const message = `✅ Slot <b>${slot}</b> bağlandı → <code>${host}</code> (${version})`;
+        logger.info(`[${slot}] connected -> (${host}) (${version})`);
+        if (this.telegramBot && this.telegramBot.bot) {
+            for (const userId of this.config.telegram.allowedUsers) {
+                this.telegramBot.bot.telegram.sendMessage(userId, message, { parse_mode: 'HTML' }).catch(() => { });
+            }
+        }
+        if (this.discordBot) {
+            this.discordBot.sendAlert(`✅ Slot **${slot}** bağlandı → \`${host}\` (${version})`);
+        }
     }
 
     async initialize() {
@@ -60,10 +83,18 @@ export class BotManager {
 
     handleLobbyDetected(slot, inLobby) {
         const emoji = inLobby ? '🏢' : '✅';
-        const status = inLobby ? 'Lobby detected! Server maintenance suspected. Waiting...' : 'Returned from lobby! Normal operation resumed.';
-        const message = `${emoji} **Slot ${slot}:** ${status}`;
-        logger.warn(message);
-        this.broadcastMessage(message);
+        const statusTR = inLobby ? 'Lobby tespit edildi! Sunucu bakımda olabilir. Bekleniyor...' : 'Lobby\'den döndü! Normal operasyon devam ediyor.';
+        const htmlMsg = `${emoji} <b>Slot ${slot}:</b> ${statusTR}`;
+        const discordMsg = `${emoji} **Slot ${slot}:** ${statusTR}`;
+        logger.warn(`Slot ${slot}: ${statusTR}`);
+        if (this.telegramBot && this.telegramBot.bot) {
+            for (const userId of this.config.telegram.allowedUsers) {
+                this.telegramBot.bot.telegram.sendMessage(userId, htmlMsg, { parse_mode: 'HTML' }).catch(() => { });
+            }
+        }
+        if (this.discordBot) {
+            this.discordBot.sendAlert(discordMsg);
+        }
     }
 
     handleInventoryAlert(message) {
@@ -301,7 +332,7 @@ export class BotManager {
 
     sendPlatformMessage(platform, userId, message) {
         if (platform === 'telegram' && this.telegramBot?.bot) {
-            this.telegramBot.bot.telegram.sendMessage(userId, message, { parse_mode: 'Markdown' })
+            this.telegramBot.bot.telegram.sendMessage(userId, this._mdToHtml(message), { parse_mode: 'HTML' })
                 .catch(e => logger.error(`TG Send Error: ${e.message}`));
         } else if (platform === 'discord' && this.discordBot) {
             if (userId && typeof userId.send === 'function') {
