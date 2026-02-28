@@ -132,24 +132,33 @@ export class TelegramBot {
 
     formatStatusLine(status) {
         const emoji = this.getStatusEmoji(status.status);
-        const pausedText = status.isPaused ? ' (PAUSED)' : '';
-        return `${emoji} Slot ${status.slot}: ${status.status}${pausedText} - ${status.username}`;
+        const pausedText = status.isPaused ? ' ⏸' : '';
+        let line = `${emoji} **Slot ${status.slot}**${pausedText} — ${status.username}`;
+        if (status.health !== undefined) {
+            line += ` | 💗 ${Math.round(status.health)} 🍗 ${Math.round(status.food)}`;
+        }
+        return line;
     }
 
     formatStatusDetailed(status) {
         const emoji = this.getStatusEmoji(status.status);
-        let text = `${emoji} **Slot ${status.slot}**\n`;
-        text += `Username: ${status.username}\n`;
-        text += `Status: ${status.status}\n`;
-        text += `Paused: ${status.isPaused ? 'Yes' : 'No'}\n`;
+        let text = `${emoji} **Slot ${status.slot}** — ${status.username}\n`;
+        text += `━━━━━━━━━━━━━━━━━━━━\n`;
+        text += `📶 Durum: **${status.status}**\n`;
+        text += `⏸ Duraklatıldı: **${status.isPaused ? 'Evet' : 'Hayır'}**\n`;
 
         if (status.health !== undefined) {
-            text += `Health: ${status.health}/20\n`;
-            text += `Food: ${status.food}/20\n`;
+            const healthBar = '❤️'.repeat(Math.round(status.health / 2));
+            text += `💗 Can: **${Math.round(status.health)}/20** ${healthBar}\n`;
+            text += `🍗 Açlık: **${Math.round(status.food)}/20**\n`;
         }
 
         if (status.position) {
-            text += `Position: ${Math.floor(status.position.x)}, ${Math.floor(status.position.y)}, ${Math.floor(status.position.z)}\n`;
+            text += `📍 Konum: \`${Math.floor(status.position.x)}, ${Math.floor(status.position.y)}, ${Math.floor(status.position.z)}\`\n`;
+        }
+
+        if (status.reconnectAttempts > 0) {
+            text += `🔄 Reconnect Denemesi: **${status.reconnectAttempts}**\n`;
         }
 
         return text;

@@ -121,14 +121,21 @@ export class DiscordBot {
 
     createStatusEmbed(statuses) {
         const embed = new EmbedBuilder()
-            .setTitle('🤖 Bot Status')
-            .setColor(0x0099FF)
-            .setTimestamp();
+            .setTitle('🤖 Bot Durumları')
+            .setColor(0x5865F2)
+            .setTimestamp()
+            .setFooter({ text: `Toplam ${statuses.length} bot` });
 
         for (const status of statuses) {
             const emoji = this.getStatusEmoji(status.status);
-            const pausedText = status.isPaused ? ' (PAUSED)' : '';
-            const value = `Status: ${status.status}${pausedText}\nUsername: ${status.username}`;
+            const pausedText = status.isPaused ? ' ⏸' : '';
+            let value = `📶 **${status.status}**${pausedText}\n👤 ${status.username}`;
+            if (status.health !== undefined) {
+                value += `\n💗 ${Math.round(status.health)}/20 🍗 ${Math.round(status.food)}/20`;
+            }
+            if (status.position) {
+                value += `\n📍 \`${Math.floor(status.position.x)}, ${Math.floor(status.position.y)}, ${Math.floor(status.position.z)}\``;
+            }
 
             embed.addFields({
                 name: `${emoji} Slot ${status.slot}`,
@@ -143,26 +150,31 @@ export class DiscordBot {
     createSingleStatusEmbed(status) {
         const emoji = this.getStatusEmoji(status.status);
         const embed = new EmbedBuilder()
-            .setTitle(`${emoji} Slot ${status.slot} Status`)
+            .setTitle(`${emoji} Slot ${status.slot} — ${status.username}`)
             .setColor(this.getStatusColor(status.status))
             .setTimestamp();
 
         embed.addFields(
-            { name: 'Username', value: status.username, inline: true },
-            { name: 'Status', value: status.status, inline: true },
-            { name: 'Paused', value: status.isPaused ? 'Yes' : 'No', inline: true }
+            { name: '📶 Durum', value: status.status, inline: true },
+            { name: '⏸ Duraklatıldı', value: status.isPaused ? 'Evet' : 'Hayır', inline: true },
+            { name: '\u200b', value: '\u200b', inline: true }
         );
 
         if (status.health !== undefined) {
             embed.addFields(
-                { name: 'Health', value: `${status.health}/20`, inline: true },
-                { name: 'Food', value: `${status.food}/20`, inline: true }
+                { name: '💗 Can', value: `${Math.round(status.health)}/20`, inline: true },
+                { name: '🍗 Açlık', value: `${Math.round(status.food)}/20`, inline: true },
+                { name: '\u200b', value: '\u200b', inline: true }
             );
         }
 
         if (status.position) {
-            const pos = `${Math.floor(status.position.x)}, ${Math.floor(status.position.y)}, ${Math.floor(status.position.z)}`;
-            embed.addFields({ name: 'Position', value: pos, inline: false });
+            const pos = `\`${Math.floor(status.position.x)}, ${Math.floor(status.position.y)}, ${Math.floor(status.position.z)}\``;
+            embed.addFields({ name: '📍 Konum', value: pos, inline: false });
+        }
+
+        if (status.reconnectAttempts > 0) {
+            embed.addFields({ name: '🔄 Reconnect Denemesi', value: `${status.reconnectAttempts}`, inline: true });
         }
 
         return embed;
