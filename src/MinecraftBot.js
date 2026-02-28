@@ -312,7 +312,7 @@ export class MinecraftBot {
             this.proximityInterval = null;
         }
         if (this.antiAfkInterval) {
-            clearInterval(this.antiAfkInterval);
+            clearTimeout(this.antiAfkInterval);
             this.antiAfkInterval = null;
         }
 
@@ -659,6 +659,7 @@ export class MinecraftBot {
                     logger.info(`Slot ${this.slot}: Breaking ${block.name} at ${pos}`);
                     await this.bot.dig(block);
                     totalBroken++;
+                    this.stats.spawnersBroken++;
                     logger.info(`Slot ${this.slot}: Broken ${block.name} (${totalBroken} total)`);
 
                     await new Promise(resolve => setTimeout(resolve, breakDelay));
@@ -696,10 +697,12 @@ export class MinecraftBot {
 
         logger.info(`Slot ${this.slot}: Starting lobby retry loop (every 30s with /home sp1)`);
 
+        const returnCmd = this.config.settings.lobbyReturnCommand || '/home sp1';
+
         setTimeout(() => {
             if (this.bot && this.isInLobby) {
-                this.bot.chat('/home sp1');
-                logger.info(`Slot ${this.slot}: Sent /home sp1 (initial attempt)`);
+                this.bot.chat(returnCmd);
+                logger.info(`Slot ${this.slot}: Sent ${returnCmd} (initial attempt)`);
             }
         }, 10000);
 
@@ -709,8 +712,8 @@ export class MinecraftBot {
                 return;
             }
 
-            logger.info(`Slot ${this.slot}: Retrying /home sp1...`);
-            this.bot.chat('/home sp1');
+            logger.info(`Slot ${this.slot}: Retrying ${returnCmd}...`);
+            this.bot.chat(returnCmd);
 
             // Fallback check: sometimes we might have already been teleported back but missed the event
             if (this.bot && this.bot.entity && this.lastPosition) {

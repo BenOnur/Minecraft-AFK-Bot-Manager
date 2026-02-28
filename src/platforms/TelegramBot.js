@@ -126,7 +126,8 @@ export class TelegramBot {
             }
         }
 
-        await ctx.reply(message, result.parseOptions || {});
+        const options = result.parseOptions || { parse_mode: 'Markdown' };
+        await ctx.reply(message, options);
     }
 
     formatStatusLine(status) {

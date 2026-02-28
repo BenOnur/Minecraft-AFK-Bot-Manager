@@ -36,7 +36,8 @@
         "allowedUsers": [
             "987654321098765432"
         ],
-        "guildId": "YOUR_GUILD_ID_HERE"
+        "guildId": "YOUR_GUILD_ID_HERE",
+        "logChannelId": "YOUR_LOG_CHANNEL_ID_HERE"
     },
     "settings": {
         "autoReconnect": true,
@@ -44,6 +45,18 @@
         "maxReconnectAttempts": 10,
         "logLevel": "info",
         "antiAfkEnabled": true,
-        "antiAfkInterval": 30000
+        "antiAfkInterval": 30000,
+        "proximityAlertEnabled": true,
+        "alertDistance": 96,
+        "alertCooldown": 300000,
+        "alertWhitelist": [],
+        "lobbyReturnCommand": "/home sp1",
+        "protection": {
+            "enabled": false,
+            "emergencyDistance": 10,
+            "blockType": "spawner",
+            "radius": 64,
+            "breakDelay": 300
+        }
     }
 }

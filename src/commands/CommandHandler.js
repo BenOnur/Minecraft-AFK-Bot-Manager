@@ -62,9 +62,6 @@ export class CommandHandler {
                 case 'protect':
                 case 'p':
                     return await this.handleProtect(args);
-                    return await this.handleWhitelist(args);
-                case 'protect':
-                    return await this.handleProtect(args);
                 case 'stats':
                     return await this.handleStats(args);
                 default:
@@ -425,20 +422,6 @@ export class CommandHandler {
         }
     }
 
-    // /protect 1
-    async handleProtect(args) {
-        if (args.length === 0) {
-            return { success: false, message: 'Usage: /protect <slot>' };
-        }
-
-        const slot = parseInt(args[0]);
-        if (isNaN(slot)) {
-            return { success: false, message: 'Invalid slot number' };
-        }
-
-        return this.botManager.toggleProtection(slot);
-    }
-
     async handleStats(args) {
         if (args.length === 0) {
             // All bots stats
@@ -500,91 +483,103 @@ export class CommandHandler {
 
     handleTelegramHelp() {
         const helpText = `
-🤖 *Minecraft Bot Manager Help*
+🤖 *Minecraft AFK Bot Manager*
+━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-💬 *Messaging:*
-/say <slot> <msg> - Send to specific slot
-/say <slot>,<slot> <msg> - Send to multiple
-/say <start>-<end> <msg> - Send to range
-/all <msg> - Send to all bots
+💬 *Mesajlaşma*
+\`/say <slot> <mesaj>\` — Belirli slota mesaj
+\`/say 1,2,3 <mesaj>\` — Birden fazla slota
+\`/say 1-3 <mesaj>\` — Slot aralığına
+\`/all <mesaj>\` — Tüm botlara mesaj
 
-📊 *Status & Info:*
-/status [slot] - Check status (or /s)
-/inv <slot> - Check inventory
+📊 *Durum & Bilgi*
+\`/status\` — Tüm botların durumu
+\`/status <slot>\` — Belirli bot durumu (/s)
+\`/inv <slot>\` — Envanter görüntüle
+\`/stats\` — Tüm bot istatistikleri
+\`/stats <slot>\` — Belirli bot istatistikleri
 
-🎮 *Controls:*
-/start <slot> - Start bot
-/stop <slot> - Stop bot
-/restart <slot|all> - Restart bot(s)
-/account add - Add new account
-/account remove <slot> - Remove account
-/account list - List accounts
-/pause <slot> - Pause bot
-/resume <slot> - Resume bot
+🎮 *Bot Kontrolü*
+\`/start <slot>\` — Botu başlat
+\`/stop <slot>\` — Botu durdur
+\`/restart <slot|all>\` — Yeniden başlat
+\`/pause <slot>\` — Anti-AFK durdur
+\`/resume <slot>\` — Anti-AFK devam
 
-🏃 *Movement:*
-/forward <slot> <dist> - Move forward (/f)
-/back <slot> <dist> - Move backward (/b)
-/left <slot> <dist> - Move left (/l)
-/right <slot> <dist> - Move right (/r)
+👤 *Hesap Yönetimi*
+\`/account add\` — Yeni hesap ekle (MS Auth)
+\`/account remove <slot>\` — Hesap sil
+\`/account list\` — Hesapları listele
 
-🗑️ *Actions:*
-/drop <slot> all - Drop all items
-/drop <slot> <item> [count] - Drop specific
+🏃 *Hareket*
+\`/forward <slot> <blok>\` — İleri git (/f)
+\`/back <slot> <blok>\` — Geri git (/b)
+\`/left <slot> <blok>\` — Sola git (/l)
+\`/right <slot> <blok>\` — Sağa git (/r)
 
-🛡️ *Security:*
-/whitelist add <name> - Whitelist user
-/whitelist remove <name> - Remove user
-/whitelist list - Show whitelist
-/protect <slot> - Toggle spawner protection
-/stats [slot] - Bot istatistikleri
-    `.trim();
+🗑️ *Eşya*
+\`/drop <slot> all\` — Tüm eşyaları bırak
+\`/drop <slot> <eşya> [adet]\` — Belirli eşya bırak
+
+🛡️ *Güvenlik*
+\`/whitelist add <oyuncu>\` — Whitelist'e ekle
+\`/whitelist remove <oyuncu>\` — Whitelist'ten çıkar
+\`/whitelist list\` — Whitelist'i göster
+\`/protect <slot>\` — Spawner korumasını aç/kapat
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+💡 *Slot formatları:* \`1\` · \`1,2,3\` · \`1-5\` · \`all\`
+        `.trim();
 
         return { success: true, message: helpText, parseOptions: { parse_mode: 'Markdown' } };
     }
 
     handleDiscordHelp() {
-        // Return a structure that DiscordBot.js handles to create an Embed
         return {
             success: true,
             type: 'embed',
             data: {
-                title: '🛠️ Minecraft Bot Commands',
-                description: 'Here are the available commands to control your bots.',
-                color: 0x0099FF,
+                title: '🤖 Minecraft AFK Bot Manager',
+                description: '> Botlarını Telegram, Discord veya konsoldan yönet.\n> Slot formatları: `1` · `1,2,3` · `1-5` · `all`',
+                color: 0x5865F2,
                 fields: [
                     {
-                        name: '💬 Messaging',
-                        value: '`/say 1 <msg>` - Send to slot 1\n`/all <msg>` - Send to all bots\n`/say 1-3 <msg>` - Range send',
+                        name: '💬 Mesajlaşma',
+                        value: '`/say <slot> <mesaj>` — Slota mesaj gönder\n`/say 1,2,3 <mesaj>` — Birden fazla slota\n`/say 1-3 <mesaj>` — Slot aralığına\n`/all <mesaj>` — Tüm botlara mesaj',
                         inline: false
                     },
                     {
-                        name: '📊 Status & Info',
-                        value: '`/status [1]` - Check status\n`/inv 1` - Check inventory',
+                        name: '📊 Durum & Bilgi',
+                        value: '`/status` — Tüm botların durumu\n`/status <slot>` — Belirli bot durumu\n`/inv <slot>` — Envanter görüntüle\n`/stats [slot]` — İstatistikler',
                         inline: true
                     },
                     {
-                        name: '🎮 Bot Control',
-                        value: '`/start 1` - Start bot\n`/stop 1` - Stop bot\n`/restart 1` - Restart bot\n`/account add` - Add Account\n`/account remove 1` - Remove Account\n`/account list` - List Accounts\n`/pause 1` - Pause bot\n`/resume 1` - Resume bot',
+                        name: '🎮 Bot Kontrolü',
+                        value: '`/start <slot>` — Botu başlat\n`/stop <slot>` — Botu durdur\n`/restart <slot|all>` — Yeniden başlat\n`/pause <slot>` — Anti-AFK durdur\n`/resume <slot>` — Anti-AFK devam',
+                        inline: true
+                    },
+                    {
+                        name: '👤 Hesap Yönetimi',
+                        value: '`/account add` — Yeni hesap ekle (MS Auth)\n`/account remove <slot>` — Hesap sil\n`/account list` — Hesapları listele',
                         inline: false
                     },
                     {
-                        name: '🏃 Movement',
-                        value: '`/forward 1 5` - Move forward\n`/back 1 5` - Move backward\n`/left 1 5` - Move left\n`/right 1 5` - Move right',
-                        inline: false
+                        name: '🏃 Hareket',
+                        value: '`/forward <slot> <blok>` — İleri git\n`/back <slot> <blok>` — Geri git\n`/left <slot> <blok>` — Sola git\n`/right <slot> <blok>` — Sağa git',
+                        inline: true
                     },
                     {
-                        name: '🗑️ Actions',
-                        value: '`/drop 1 all` - Drop all items\n`/drop 1 <item>` - Drop specific',
-                        inline: false
+                        name: '🗑️ Eşya',
+                        value: '`/drop <slot> all` — Tüm eşyaları bırak\n`/drop <slot> <eşya> [adet]` — Belirli eşya bırak',
+                        inline: true
                     },
                     {
-                        name: '🛡️ Security',
-                        value: '`/whitelist add <name>`\n`/whitelist remove <name>`\n`/whitelist list`\n`/protect <slot>` - Toggle protection\n`/stats [slot]` - Bot statistics',
+                        name: '🛡️ Güvenlik',
+                        value: '`/whitelist add <oyuncu>` — Whitelist\'e ekle\n`/whitelist remove <oyuncu>` — Whitelist\'ten çıkar\n`/whitelist list` — Whitelist\'i göster\n`/protect <slot>` — Spawner korumasını aç/kapat',
                         inline: false
                     }
                 ],
-                footer: { text: 'Onur Client Bot Manager' }
+                footer: { text: 'Minecraft AFK Bot Manager • github.com/BenOnur/Minecraft-AFK-Bot-Manager' }
             }
         };
     }

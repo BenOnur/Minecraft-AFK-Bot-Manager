@@ -71,19 +71,6 @@ export class BotManager {
         this.broadcastMessage(message);
     }
 
-    toggleProtection(slot) {
-        const bot = this.bots.get(slot);
-        if (!bot) {
-            return { success: false, message: `Slot ${slot} not found` };
-        }
-
-        const newState = bot.toggleProtection();
-        return {
-            success: true,
-            message: `🛡️ Slot ${slot} protection: **${newState ? 'ENABLED ✅' : 'DISABLED ❌'}**`
-        };
-    }
-
     async startBot(slot) {
         const bot = this.bots.get(slot);
         if (!bot) {
@@ -138,7 +125,7 @@ export class BotManager {
         logger.info('Starting all bots');
         const promises = [];
 
-        for (const [slot, bot] of this.bots) {
+        for (const bot of this.bots.values()) {
             promises.push(bot.start());
         }
 
@@ -150,7 +137,7 @@ export class BotManager {
         logger.info('Stopping all bots');
         const promises = [];
 
-        for (const [slot, bot] of this.bots) {
+        for (const bot of this.bots.values()) {
             promises.push(bot.stop());
         }
 
@@ -161,10 +148,8 @@ export class BotManager {
     async restartAll() {
         logger.info('Restarting all bots');
         await this.stopAll();
-
-        setTimeout(async () => {
-            await this.startAll();
-        }, 3000);
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        await this.startAll();
     }
 
     async addAccount(platform, userId) {
