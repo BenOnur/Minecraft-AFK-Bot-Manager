@@ -474,36 +474,35 @@ export class BotManager {
         await this.saveConfig();
         return { success: true, message: `Removed ${username} from whitelist` };
     }
-    async toggleProtection(forceState = null) {
-        if (!this.config.settings.protection) {
-            this.config.settings.protection = {};
+    async toggleProtection(slot, forceState = null) {
+        const accountConfig = this.config.minecraft.accounts.find(acc => acc.slot === slot);
+        if (!accountConfig) {
+            return { success: false, message: `Slot ${slot} not found in configuration.` };
         }
 
-        const currentState = this.config.settings.protection.enabled === true;
+        const globalDefault = this.config.settings.protection?.enabled === true;
+        const currentState = accountConfig.protectionEnabled !== undefined
+            ? accountConfig.protectionEnabled
+            : globalDefault;
+
         const newState = typeof forceState === 'boolean' ? forceState : !currentState;
-
-        this.config.settings.protection.enabled = newState;
-
-        // Legacy per-slot overrides are removed so global behavior stays consistent.
-        for (const accountConfig of this.config.minecraft.accounts) {
-            if (Object.prototype.hasOwnProperty.call(accountConfig, 'protectionEnabled')) {
-                delete accountConfig.protectionEnabled;
-            }
-        }
+        accountConfig.protectionEnabled = newState;
 
         const saved = await this.saveConfig();
         if (!saved) {
             return { success: false, message: 'Protection state could not be saved.' };
         }
 
-        for (const bot of this.bots.values()) {
+        const bot = this.bots.get(slot);
+        if (bot) {
             bot.toggleProtection(newState);
         }
 
         return {
             success: true,
-            message: `Protection is now ${newState ? 'VP ACIK' : 'VP KAPALI'} (lobby + spawner).`,
-            enabled: newState
+            message: `Slot ${slot} protection is now ${newState ? 'ACIK' : 'KAPALI'}.`,
+            enabled: newState,
+            slot
         };
     }
 }

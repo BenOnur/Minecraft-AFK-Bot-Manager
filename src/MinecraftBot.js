@@ -59,6 +59,9 @@ export class MinecraftBot {
         this.onInventoryAlert = null;
         this.tempReconnectDelay = null;
         this.protectionEnabled = this.config.settings.protection?.enabled || false;
+        if (this.accountConfig.protectionEnabled !== undefined) {
+            this.protectionEnabled = this.accountConfig.protectionEnabled;
+        }
         this.reconnectTimeout = null;
         this.lastPosition = null;
         this.isInLobby = false;
