@@ -152,7 +152,7 @@ export class MinecraftBot {
             if (this.config.settings.antiAfkEnabled) {
                 this.startAntiAfk();
             }
-            if (this.config.settings.proximityAlertEnabled) {
+            if (this.config.settings.proximityAlertEnabled && this.protectionEnabled) {
                 this.startProximityCheck();
             }
 
@@ -348,7 +348,7 @@ export class MinecraftBot {
         if (this.config.settings.antiAfkEnabled) {
             this.startAntiAfk();
         }
-        if (this.config.settings.proximityAlertEnabled) {
+        if (this.config.settings.proximityAlertEnabled && this.protectionEnabled) {
             this.startProximityCheck();
         }
     }
@@ -488,8 +488,13 @@ export class MinecraftBot {
         // Kontrol aralÄ±ÄŸÄ±nÄ± 1 saniyeden 2.5 saniyeye Ã§Ä±karÄ±yoruz (YÃ¼k azaltma)
         const checkInterval = 2500 + (this.slot * 100);
 
+        if (this.proximityInterval) {
+            clearInterval(this.proximityInterval);
+            this.proximityInterval = null;
+        }
+
         this.proximityInterval = setInterval(() => {
-            if (!this.bot || this.status !== 'online' || this.isPaused || this.isInLobby) return;
+            if (!this.bot || this.status !== 'online' || this.isPaused || this.isInLobby || !this.protectionEnabled) return;
 
             const alertDistance = this.config.settings.alertDistance || 96;
             const cooldown = this.config.settings.alertCooldown || 300000;
@@ -691,6 +696,15 @@ export class MinecraftBot {
             this.protectionEnabled = !this.protectionEnabled;
         }
 
+        if (!this.protectionEnabled) {
+            if (this.proximityInterval) {
+                clearInterval(this.proximityInterval);
+                this.proximityInterval = null;
+            }
+        } else if (this.config.settings.proximityAlertEnabled && this.status === 'online' && !this.isPaused && !this.isInLobby) {
+            this.startProximityCheck();
+        }
+
         if (!this.protectionEnabled && this.isInLobby) {
             logger.info(`Slot ${this.slot}: Protection disabled while in lobby mode. Stopping lobby retry loop.`);
             this.isInLobby = false;
@@ -702,9 +716,6 @@ export class MinecraftBot {
 
             if (this.config.settings.antiAfkEnabled) {
                 this.startAntiAfk();
-            }
-            if (this.config.settings.proximityAlertEnabled) {
-                this.startProximityCheck();
             }
         }
 
