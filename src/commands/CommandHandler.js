@@ -76,7 +76,7 @@ export class CommandHandler {
     // /say 1 mesaj veya /say 1,3,5 mesaj veya /say 1-3 mesaj
     async handleSay(args) {
         if (args.length < 2) {
-            return { success: false, message: '❌ Kullanım: `/say <slot(lar)> <mesaj>`\nÖrnek: `/say 1 merhaba` veya `/say 1-3 merhaba`' };
+            return { success: false, message: 'âŒ KullanÄ±m: `/say <slot(lar)> <mesaj>`\nÃ–rnek: `/say 1 merhaba` veya `/say 1-3 merhaba`' };
         }
 
         const slotArg = args[0];
@@ -91,17 +91,17 @@ export class CommandHandler {
 
         const validation = CommandParser.validateSlots(slots, availableSlots);
         if (!validation.valid) {
-            return { success: false, message: `❌ Geçersiz slot: ${validation.error}` };
+            return { success: false, message: `âŒ GeÃ§ersiz slot: ${validation.error}` };
         }
 
         const results = await this.botManager.sendMessage(validation.slots, message);
         const successful = results.filter(r => r.success).length;
         const failed = results.filter(r => !r.success);
 
-        let msg = `💬 Mesaj gönderildi: **${successful}/${validation.slots.length}** bot\n`;
-        msg += `📝 Mesaj: \`${message}\``;
+        let msg = `ğŸ’¬ Mesaj gÃ¶nderildi: **${successful}/${validation.slots.length}** bot\n`;
+        msg += `ğŸ“ Mesaj: \`${message}\``;
         if (failed.length > 0) {
-            msg += `\n⚠️ Başarısız slotlar: ${failed.map(r => r.slot).join(', ')}`;
+            msg += `\nâš ï¸ BaÅŸarÄ±sÄ±z slotlar: ${failed.map(r => r.slot).join(', ')}`;
         }
 
         return { success: true, message: msg };
@@ -110,7 +110,7 @@ export class CommandHandler {
     // /all mesaj
     async handleAll(args) {
         if (args.length === 0) {
-            return { success: false, message: '❌ Kullanım: `/all <mesaj>`' };
+            return { success: false, message: 'âŒ KullanÄ±m: `/all <mesaj>`' };
         }
 
         const message = args.join(' ');
@@ -119,7 +119,7 @@ export class CommandHandler {
 
         return {
             success: true,
-            message: `💬 Tüm botlara mesaj gönderildi: **${successful}/${results.length}** bot\n📝 Mesaj: \`${message}\``
+            message: `ğŸ’¬ TÃ¼m botlara mesaj gÃ¶nderildi: **${successful}/${results.length}** bot\nğŸ“ Mesaj: \`${message}\``
         };
     }
 
@@ -129,19 +129,19 @@ export class CommandHandler {
             const statuses = this.botManager.getAllStatus();
             return {
                 success: true,
-                message: 'Tüm bot durumları',
+                message: 'TÃ¼m bot durumlarÄ±',
                 data: statuses
             };
         }
 
         const slot = parseInt(args[0]);
         if (isNaN(slot)) {
-            return { success: false, message: '❌ Geçersiz slot numarası' };
+            return { success: false, message: 'âŒ GeÃ§ersiz slot numarasÄ±' };
         }
 
         const status = this.botManager.getBotStatus(slot);
         if (!status) {
-            return { success: false, message: `❌ Slot **${slot}** bulunamadı` };
+            return { success: false, message: `âŒ Slot **${slot}** bulunamadÄ±` };
         }
 
         return {
@@ -154,29 +154,29 @@ export class CommandHandler {
     // /restart 1 veya /restart all
     async handleRestart(args) {
         if (args.length === 0) {
-            return { success: false, message: '❌ Kullanım: `/restart <slot|all>`' };
+            return { success: false, message: 'âŒ KullanÄ±m: `/restart <slot|all>`' };
         }
 
         if (args[0] === 'all') {
             await this.botManager.restartAll();
-            return { success: true, message: '🔄 Tüm botlar yeniden başlatılıyor...' };
+            return { success: true, message: 'ğŸ”„ TÃ¼m botlar yeniden baÅŸlatÄ±lÄ±yor...' };
         }
 
         const slot = parseInt(args[0]);
         if (isNaN(slot)) {
-            return { success: false, message: '❌ Geçersiz slot numarası' };
+            return { success: false, message: 'âŒ GeÃ§ersiz slot numarasÄ±' };
         }
 
         const result = await this.botManager.restartBot(slot);
         return {
             success: result,
-            message: result ? `🔄 Slot **${slot}** yeniden başlatılıyor...` : `❌ Slot **${slot}** yeniden başlatılamadı`
+            message: result ? `ğŸ”„ Slot **${slot}** yeniden baÅŸlatÄ±lÄ±yor...` : `âŒ Slot **${slot}** yeniden baÅŸlatÄ±lamadÄ±`
         };
     }
 
     async handleAccount(args, platform, userId) {
         if (args.length === 0) {
-            return { success: false, message: '❌ Kullanım: `/account <add|remove|list> [slot]`' };
+            return { success: false, message: 'âŒ KullanÄ±m: `/account <add|remove|list> [slot]`' };
         }
 
         const action = args[0].toLowerCase();
@@ -184,118 +184,118 @@ export class CommandHandler {
         if (action === 'add') {
             return await this.botManager.addAccount(platform, userId);
         } else if (action === 'remove') {
-            if (args.length < 2) return { success: false, message: '❌ Kullanım: `/account remove <slot>`' };
+            if (args.length < 2) return { success: false, message: 'âŒ KullanÄ±m: `/account remove <slot>`' };
             const slot = args[1];
             return await this.botManager.removeAccount(slot);
         } else if (action === 'list') {
             const accounts = this.botManager.getAccountList();
             if (accounts.length === 0) {
-                return { success: true, message: '📋 Kayıtlı hesap yok.\n💡 Eklemek için: `/account add`' };
+                return { success: true, message: 'ğŸ“‹ KayÄ±tlÄ± hesap yok.\nğŸ’¡ Eklemek iÃ§in: `/account add`' };
             }
 
-            let message = '📋 **Kayıtlı Hesaplar**\n━━━━━━━━━━━━━━━━━━━━\n';
+            let message = 'ğŸ“‹ **KayÄ±tlÄ± Hesaplar**\nâ”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”\n';
             accounts.forEach(acc => {
-                const statusEmoji = acc.status === 'online' ? '🟢' : (acc.status === 'offline' ? '⚫' : '🔴');
-                const pausedText = acc.isPaused ? ' ⏸' : '';
-                message += `${statusEmoji} **Slot ${acc.slot}** — ${acc.username}${pausedText}`;
+                const statusEmoji = acc.status === 'online' ? 'ğŸŸ¢' : (acc.status === 'offline' ? 'âš«' : 'ğŸ”´');
+                const pausedText = acc.isPaused ? ' â¸' : '';
+                message += `${statusEmoji} **Slot ${acc.slot}** â€” ${acc.username}${pausedText}`;
                 if (acc.health !== undefined) {
-                    message += ` | 💗 ${Math.round(acc.health)} 🍗 ${Math.round(acc.food)}`;
+                    message += ` | ğŸ’— ${Math.round(acc.health)} ğŸ— ${Math.round(acc.food)}`;
                 }
                 message += '\n';
             });
-            message += `━━━━━━━━━━━━━━━━━━━━\n📊 Toplam: **${accounts.length}** hesap`;
+            message += `â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”\nğŸ“Š Toplam: **${accounts.length}** hesap`;
             return { success: true, message };
         } else {
-            return { success: false, message: '❌ Bilinmeyen işlem. Kullanım: `add`, `remove` veya `list`' };
+            return { success: false, message: 'âŒ Bilinmeyen iÅŸlem. KullanÄ±m: `add`, `remove` veya `list`' };
         }
     }
 
     // /stop 1
     async handleStop(args) {
         if (args.length === 0) {
-            return { success: false, message: '❌ Kullanım: `/stop <slot>`' };
+            return { success: false, message: 'âŒ KullanÄ±m: `/stop <slot>`' };
         }
 
         const slot = parseInt(args[0]);
         if (isNaN(slot)) {
-            return { success: false, message: '❌ Geçersiz slot numarası' };
+            return { success: false, message: 'âŒ GeÃ§ersiz slot numarasÄ±' };
         }
 
         const result = await this.botManager.stopBot(slot);
         return {
             success: result,
-            message: result ? `⏹️ Slot **${slot}** durduruldu` : `❌ Slot **${slot}** durdurulamadı`
+            message: result ? `â¹ï¸ Slot **${slot}** durduruldu` : `âŒ Slot **${slot}** durdurulamadÄ±`
         };
     }
 
     // /start 1
     async handleStart(args) {
         if (args.length === 0) {
-            return { success: false, message: '❌ Kullanım: `/start <slot>`' };
+            return { success: false, message: 'âŒ KullanÄ±m: `/start <slot>`' };
         }
 
         const slot = parseInt(args[0]);
         if (isNaN(slot)) {
-            return { success: false, message: '❌ Geçersiz slot numarası' };
+            return { success: false, message: 'âŒ GeÃ§ersiz slot numarasÄ±' };
         }
 
         const result = await this.botManager.startBot(slot);
         return {
             success: result,
-            message: result ? `▶️ Slot **${slot}** başlatılıyor...` : `❌ Slot **${slot}** başlatılamadı`
+            message: result ? `â–¶ï¸ Slot **${slot}** baÅŸlatÄ±lÄ±yor...` : `âŒ Slot **${slot}** baÅŸlatÄ±lamadÄ±`
         };
     }
 
     // /pause 1
     async handlePause(args) {
         if (args.length === 0) {
-            return { success: false, message: '❌ Kullanım: `/pause <slot>`' };
+            return { success: false, message: 'âŒ KullanÄ±m: `/pause <slot>`' };
         }
 
         const slot = parseInt(args[0]);
         if (isNaN(slot)) {
-            return { success: false, message: '❌ Geçersiz slot numarası' };
+            return { success: false, message: 'âŒ GeÃ§ersiz slot numarasÄ±' };
         }
 
         const result = this.botManager.pauseBot(slot);
         return {
             success: result,
-            message: result ? `⏸️ Slot **${slot}** duraklatıldı (Anti-AFK devre dışı)` : `❌ Slot **${slot}** duraklatılamadı`
+            message: result ? `â¸ï¸ Slot **${slot}** duraklatÄ±ldÄ± (Anti-AFK devre dÄ±ÅŸÄ±)` : `âŒ Slot **${slot}** duraklatÄ±lamadÄ±`
         };
     }
 
     // /resume 1
     async handleResume(args) {
         if (args.length === 0) {
-            return { success: false, message: '❌ Kullanım: `/resume <slot>`' };
+            return { success: false, message: 'âŒ KullanÄ±m: `/resume <slot>`' };
         }
 
         const slot = parseInt(args[0]);
         if (isNaN(slot)) {
-            return { success: false, message: '❌ Geçersiz slot numarası' };
+            return { success: false, message: 'âŒ GeÃ§ersiz slot numarasÄ±' };
         }
 
         const result = this.botManager.resumeBot(slot);
         return {
             success: result,
-            message: result ? `▶️ Slot **${slot}** devam ettiriliyor (Anti-AFK aktif)` : `❌ Slot **${slot}** devam ettirilemedi`
+            message: result ? `â–¶ï¸ Slot **${slot}** devam ettiriliyor (Anti-AFK aktif)` : `âŒ Slot **${slot}** devam ettirilemedi`
         };
     }
 
     // /inv 1
     async handleInventory(args) {
         if (args.length === 0) {
-            return { success: false, message: '❌ Kullanım: `/inv <slot>`' };
+            return { success: false, message: 'âŒ KullanÄ±m: `/inv <slot>`' };
         }
 
         const slot = parseInt(args[0]);
         if (isNaN(slot)) {
-            return { success: false, message: '❌ Geçersiz slot numarası' };
+            return { success: false, message: 'âŒ GeÃ§ersiz slot numarasÄ±' };
         }
 
         const inventory = this.botManager.getBotInventory(slot);
         if (!inventory) {
-            return { success: false, message: `❌ Slot **${slot}** çevrimdışı veya bulunamadı` };
+            return { success: false, message: `âŒ Slot **${slot}** Ã§evrimdÄ±ÅŸÄ± veya bulunamadÄ±` };
         }
 
         return {
@@ -320,7 +320,7 @@ export class CommandHandler {
         }
 
         // Note: "take" fonksiyonu Minecraft'ta genelde bir chest'ten item almak demektir
-        // Bu mineflayer ile daha karmaşık olduğundan, şimdilik basit bir mesaj döndürelim
+        // Bu mineflayer ile daha karmaÅŸÄ±k olduÄŸundan, ÅŸimdilik basit bir mesaj dÃ¶ndÃ¼relim
         return {
             success: false,
             message: 'Take command not yet implemented - requires chest interaction logic'
@@ -356,18 +356,18 @@ export class CommandHandler {
 
     // /forward 1 5
     async handleMove(args, direction) {
-        const dirEmoji = { forward: '⬆️', back: '⬇️', left: '⬅️', right: '➡️' };
-        const dirTR = { forward: 'ileri', back: 'geri', left: 'sola', right: 'sağa' };
+        const dirEmoji = { forward: 'â¬†ï¸', back: 'â¬‡ï¸', left: 'â¬…ï¸', right: 'â¡ï¸' };
+        const dirTR = { forward: 'ileri', back: 'geri', left: 'sola', right: 'saÄŸa' };
 
         if (args.length < 2) {
-            return { success: false, message: `❌ Kullanım: \`/${direction === 'back' ? 'backward' : direction} <slot> <blok>\`` };
+            return { success: false, message: `âŒ KullanÄ±m: \`/${direction === 'back' ? 'backward' : direction} <slot> <blok>\`` };
         }
 
         const slotArg = args[0];
         const distance = parseInt(args[1]);
 
         if (isNaN(distance)) {
-            return { success: false, message: '❌ Geçersiz mesafe değeri' };
+            return { success: false, message: 'âŒ GeÃ§ersiz mesafe deÄŸeri' };
         }
 
         let slots = CommandParser.parseSlots(slotArg);
@@ -379,7 +379,7 @@ export class CommandHandler {
 
         const validation = CommandParser.validateSlots(slots, availableSlots);
         if (!validation.valid) {
-            return { success: false, message: `❌ Geçersiz slot: ${validation.error}` };
+            return { success: false, message: `âŒ GeÃ§ersiz slot: ${validation.error}` };
         }
 
         const results = [];
@@ -389,7 +389,7 @@ export class CommandHandler {
         }
 
         const successful = results.filter(r => r.success).length;
-        const emoji = dirEmoji[direction] || '🏃';
+        const emoji = dirEmoji[direction] || 'ğŸƒ';
         const tr = dirTR[direction] || direction;
 
         return {
@@ -401,7 +401,7 @@ export class CommandHandler {
     // /whitelist add <name> | /whitelist remove <name> | /whitelist list
     async handleWhitelist(args) {
         if (args.length === 0) {
-            return { success: false, message: '❌ Kullanım: `/whitelist <add|remove|list> [oyuncu]`' };
+            return { success: false, message: 'âŒ KullanÄ±m: `/whitelist <add|remove|list> [oyuncu]`' };
         }
 
         const action = args[0].toLowerCase();
@@ -409,14 +409,14 @@ export class CommandHandler {
         if (action === 'list') {
             const list = this.botManager.getWhitelist();
             if (list.length === 0) {
-                return { success: true, message: '📋 **Whitelist boş**\n💡 Eklemek için: `/whitelist add <oyuncu>`' };
+                return { success: true, message: 'ğŸ“‹ **Whitelist boÅŸ**\nğŸ’¡ Eklemek iÃ§in: `/whitelist add <oyuncu>`' };
             }
             const numbered = list.map((u, i) => `${i + 1}. \`${u}\``).join('\n');
-            return { success: true, message: `📋 **Whitelist** (${list.length} oyuncu)\n━━━━━━━━━━━━━━━━\n${numbered}` };
+            return { success: true, message: `ğŸ“‹ **Whitelist** (${list.length} oyuncu)\nâ”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”\n${numbered}` };
         }
 
         if (args.length < 2) {
-            return { success: false, message: `❌ Kullanım: \`/whitelist ${action} <oyuncu>\`` };
+            return { success: false, message: `âŒ KullanÄ±m: \`/whitelist ${action} <oyuncu>\`` };
         }
 
         const player = args[1];
@@ -424,64 +424,82 @@ export class CommandHandler {
         if (action === 'add') {
             const result = await this.botManager.addToWhitelist(player);
             return result.success
-                ? { success: true, message: `✅ **${player}** whitelist'e eklendi` }
-                : { success: false, message: `⚠️ **${player}** zaten whitelist'te` };
+                ? { success: true, message: `âœ… **${player}** whitelist'e eklendi` }
+                : { success: false, message: `âš ï¸ **${player}** zaten whitelist'te` };
         } else if (action === 'remove' || action === 'delete') {
             const result = await this.botManager.removeFromWhitelist(player);
             return result.success
-                ? { success: true, message: `🗑️ **${player}** whitelist'ten çıkarıldı` }
-                : { success: false, message: `❌ **${player}** whitelist'te bulunamadı` };
+                ? { success: true, message: `ğŸ—‘ï¸ **${player}** whitelist'ten Ã§Ä±karÄ±ldÄ±` }
+                : { success: false, message: `âŒ **${player}** whitelist'te bulunamadÄ±` };
         } else {
-            return { success: false, message: '❌ Bilinmeyen işlem. Kullanım: `add`, `remove` veya `list`' };
+            return { success: false, message: 'âŒ Bilinmeyen iÅŸlem. KullanÄ±m: `add`, `remove` veya `list`' };
         }
     }
 
+    // /protect | /protect on | /protect off
+    async handleProtect(args) {
+        if (args.length === 0) {
+            return await this.botManager.toggleProtection();
+        }
+
+        const action = args[0].toLowerCase();
+
+        if (['on', 'enable', 'enabled', 'true'].includes(action)) {
+            return await this.botManager.toggleProtection(true);
+        }
+
+        if (['off', 'disable', 'disabled', 'false'].includes(action)) {
+            return await this.botManager.toggleProtection(false);
+        }
+
+        return { success: false, message: 'Kullanım: /protect [on|off]' };
+    }
     async handleStats(args) {
         if (args.length === 0) {
             const allStats = this.botManager.getAllStats();
             if (allStats.length === 0) {
-                return { success: true, message: '📊 Kayıtlı bot yok.' };
+                return { success: true, message: 'ğŸ“Š KayÄ±tlÄ± bot yok.' };
             }
 
-            let message = '📊 **Bot İstatistikleri**\n━━━━━━━━━━━━━━━━━━━━\n';
+            let message = 'ğŸ“Š **Bot Ä°statistikleri**\nâ”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”\n';
             for (const stat of allStats) {
-                const statusEmoji = stat.status === 'online' ? '🟢' : '⚫';
-                message += `\n${statusEmoji} **Slot ${stat.slot}** — ${stat.username}\n`;
-                message += `  ⏱ Uptime: \`${stat.uptimeFormatted}\`\n`;
-                message += `  🔄 Reconnect: **${stat.reconnects}** | ⚠️ Alert: **${stat.alertsTriggered}**\n`;
-                message += `  💎 Spawner: **${stat.spawnersBroken}** | 🏢 Lobby: **${stat.lobbyEvents}**\n`;
+                const statusEmoji = stat.status === 'online' ? 'ğŸŸ¢' : 'âš«';
+                message += `\n${statusEmoji} **Slot ${stat.slot}** â€” ${stat.username}\n`;
+                message += `  â± Uptime: \`${stat.uptimeFormatted}\`\n`;
+                message += `  ğŸ”„ Reconnect: **${stat.reconnects}** | âš ï¸ Alert: **${stat.alertsTriggered}**\n`;
+                message += `  ğŸ’ Spawner: **${stat.spawnersBroken}** | ğŸ¢ Lobby: **${stat.lobbyEvents}**\n`;
             }
-            message += '━━━━━━━━━━━━━━━━━━━━';
+            message += 'â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”';
 
             return { success: true, message: message.trim() };
         }
 
         const slot = parseInt(args[0]);
         if (isNaN(slot)) {
-            return { success: false, message: '❌ Geçersiz slot numarası' };
+            return { success: false, message: 'âŒ GeÃ§ersiz slot numarasÄ±' };
         }
 
         const stat = this.botManager.getBotStats(slot);
         if (!stat) {
-            return { success: false, message: `❌ Slot **${slot}** bulunamadı` };
+            return { success: false, message: `âŒ Slot **${slot}** bulunamadÄ±` };
         }
 
-        const statusEmoji = stat.status === 'online' ? '🟢' : '⚫';
-        let message = `📊 **Slot ${stat.slot} İstatistikleri**\n`;
-        message += `👤 Kullanıcı: **${stat.username}**\n`;
-        message += `━━━━━━━━━━━━━━━━━━━━\n`;
+        const statusEmoji = stat.status === 'online' ? 'ğŸŸ¢' : 'âš«';
+        let message = `ğŸ“Š **Slot ${stat.slot} Ä°statistikleri**\n`;
+        message += `ğŸ‘¤ KullanÄ±cÄ±: **${stat.username}**\n`;
+        message += `â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”\n`;
         message += `${statusEmoji} Durum: **${stat.status}**\n`;
-        message += `⏱ Uptime: **${stat.uptimeFormatted}**\n`;
-        message += `📅 Oturum Süresi: **${stat.sessionTimeFormatted}**\n`;
-        message += `🔄 Reconnect Sayısı: **${stat.reconnects}**\n`;
-        message += `⚠️ Alarm Sayısı: **${stat.alertsTriggered}**\n`;
-        message += `💎 Kırılan Spawner: **${stat.spawnersBroken}**\n`;
-        message += `🏢 Lobby Olayları: **${stat.lobbyEvents}**`;
+        message += `â± Uptime: **${stat.uptimeFormatted}**\n`;
+        message += `ğŸ“… Oturum SÃ¼resi: **${stat.sessionTimeFormatted}**\n`;
+        message += `ğŸ”„ Reconnect SayÄ±sÄ±: **${stat.reconnects}**\n`;
+        message += `âš ï¸ Alarm SayÄ±sÄ±: **${stat.alertsTriggered}**\n`;
+        message += `ğŸ’ KÄ±rÄ±lan Spawner: **${stat.spawnersBroken}**\n`;
+        message += `ğŸ¢ Lobby OlaylarÄ±: **${stat.lobbyEvents}**`;
 
         if (stat.lastDisconnect) {
             const ago = Date.now() - stat.lastDisconnect;
             const minutes = Math.floor(ago / 60000);
-            message += `\n📡 Son Kopma: **${minutes} dk önce**`;
+            message += `\nğŸ“¡ Son Kopma: **${minutes} dk Ã¶nce**`;
         }
 
         return { success: true, message };
@@ -499,52 +517,53 @@ export class CommandHandler {
 
     handleTelegramHelp() {
         const helpText = `
-🤖 <b>Minecraft AFK Bot Manager</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━
+ğŸ¤– <b>Minecraft AFK Bot Manager</b>
+â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”
 
-💬 <b>Mesajlaşma</b>
-<code>/say <slot> <mesaj></code> — Belirli slota mesaj
-<code>/say 1,2,3 <mesaj></code> — Birden fazla slota
-<code>/say 1-3 <mesaj></code> — Slot aralığına
-<code>/all <mesaj></code> — Tüm botlara mesaj
+ğŸ’¬ <b>MesajlaÅŸma</b>
+<code>/say <slot> <mesaj></code> â€” Belirli slota mesaj
+<code>/say 1,2,3 <mesaj></code> â€” Birden fazla slota
+<code>/say 1-3 <mesaj></code> â€” Slot aralÄ±ÄŸÄ±na
+<code>/all <mesaj></code> â€” TÃ¼m botlara mesaj
 
-📊 <b>Durum & Bilgi</b>
-<code>/status</code> — Tüm botların durumu
-<code>/status <slot></code> — Belirli bot durumu (/s)
-<code>/inv <slot></code> — Envanter görüntüle
-<code>/stats</code> — Tüm bot istatistikleri
-<code>/stats <slot></code> — Belirli bot istatistikleri
+ğŸ“Š <b>Durum & Bilgi</b>
+<code>/status</code> â€” TÃ¼m botlarÄ±n durumu
+<code>/status <slot></code> â€” Belirli bot durumu (/s)
+<code>/inv <slot></code> â€” Envanter gÃ¶rÃ¼ntÃ¼le
+<code>/stats</code> â€” TÃ¼m bot istatistikleri
+<code>/stats <slot></code> â€” Belirli bot istatistikleri
 
-🎮 <b>Bot Kontrolü</b>
-<code>/start <slot></code> — Botu başlat
-<code>/stop <slot></code> — Botu durdur
-<code>/restart <slot|all></code> — Yeniden başlat
-<code>/pause <slot></code> — Anti-AFK durdur
-<code>/resume <slot></code> — Anti-AFK devam
+ğŸ® <b>Bot KontrolÃ¼</b>
+<code>/start <slot></code> â€” Botu baÅŸlat
+<code>/stop <slot></code> â€” Botu durdur
+<code>/restart <slot|all></code> â€” Yeniden baÅŸlat
+<code>/pause <slot></code> â€” Anti-AFK durdur
+<code>/resume <slot></code> â€” Anti-AFK devam
 
-👤 <b>Hesap Yönetimi</b>
-<code>/account add</code> — Yeni hesap ekle (MS Auth)
-<code>/account remove <slot></code> — Hesap sil
-<code>/account list</code> — Hesapları listele
+ğŸ‘¤ <b>Hesap YÃ¶netimi</b>
+<code>/account add</code> â€” Yeni hesap ekle (MS Auth)
+<code>/account remove <slot></code> â€” Hesap sil
+<code>/account list</code> â€” HesaplarÄ± listele
 
-🏃 <b>Hareket</b>
-<code>/forward <slot> <blok></code> — İleri git (/f)
-<code>/back <slot> <blok></code> — Geri git (/b)
-<code>/left <slot> <blok></code> — Sola git (/l)
-<code>/right <slot> <blok></code> — Sağa git (/r)
+ğŸƒ <b>Hareket</b>
+<code>/forward <slot> <blok></code> â€” Ä°leri git (/f)
+<code>/back <slot> <blok></code> â€” Geri git (/b)
+<code>/left <slot> <blok></code> â€” Sola git (/l)
+<code>/right <slot> <blok></code> â€” SaÄŸa git (/r)
 
-🗑️ <b>Eşya</b>
-<code>/drop <slot> all</code> — Tüm eşyaları bırak
-<code>/drop <slot> <eşya> [adet]</code> — Belirli eşya bırak
+ğŸ—‘ï¸ <b>EÅŸya</b>
+<code>/drop <slot> all</code> â€” TÃ¼m eÅŸyalarÄ± bÄ±rak
+<code>/drop <slot> <eÅŸya> [adet]</code> â€” Belirli eÅŸya bÄ±rak
 
-🛡️ <b>Güvenlik</b>
-<code>/whitelist add <oyuncu></code> — Whitelist'e ekle
-<code>/whitelist remove <oyuncu></code> — Whitelist'ten çıkar
-<code>/whitelist list</code> — Whitelist'i göster
-<code>/protect <slot></code> — Spawner korumasını aç/kapat
+ğŸ›¡ï¸ <b>GÃ¼venlik</b>
+<code>/whitelist add <oyuncu></code> â€” Whitelist'e ekle
+<code>/whitelist remove <oyuncu></code> â€” Whitelist'ten Ã§Ä±kar
+<code>/whitelist list</code> â€” Whitelist'i gÃ¶ster
+<code>/protect [on|off]</code> â€” Lobby + spawner korumasÄ±nÄ± aÃ§/kapat
+<code>/stats [slot]</code> â€” Bot istatistikleri
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-💡 <b>Slot formatları:</b> <code>1</code> · <code>1,2,3</code> · <code>1-5</code> · <code>all</code>
+â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”
+ğŸ’¡ <b>Slot formatlarÄ±:</b> <code>1</code> Â· <code>1,2,3</code> Â· <code>1-5</code> Â· <code>all</code>
         `.trim();
 
         return { success: true, message: helpText, parseOptions: { parse_mode: 'HTML' } };
@@ -555,54 +574,54 @@ export class CommandHandler {
             success: true,
             type: 'embed',
             data: {
-                title: '🤖 Minecraft AFK Bot Manager',
-                description: '> Botlarını Telegram, Discord veya konsoldan yönet.\n> Slot formatları: `1` · `1,2,3` · `1-5` · `all`',
+                title: 'ğŸ¤– Minecraft AFK Bot Manager',
+                description: '> BotlarÄ±nÄ± Telegram, Discord veya konsoldan yÃ¶net.\n> Slot formatlarÄ±: `1` Â· `1,2,3` Â· `1-5` Â· `all`',
                 color: 0x5865F2,
                 fields: [
                     {
-                        name: '💬 Mesajlaşma',
-                        value: '`/say <slot> <mesaj>` — Slota mesaj gönder\n`/say 1,2,3 <mesaj>` — Birden fazla slota\n`/say 1-3 <mesaj>` — Slot aralığına\n`/all <mesaj>` — Tüm botlara mesaj',
+                        name: 'ğŸ’¬ MesajlaÅŸma',
+                        value: '`/say <slot> <mesaj>` â€” Slota mesaj gÃ¶nder\n`/say 1,2,3 <mesaj>` â€” Birden fazla slota\n`/say 1-3 <mesaj>` â€” Slot aralÄ±ÄŸÄ±na\n`/all <mesaj>` â€” TÃ¼m botlara mesaj',
                         inline: false
                     },
                     {
-                        name: '📊 Durum & Bilgi',
-                        value: '`/status` — Tüm botların durumu\n`/status <slot>` — Belirli bot durumu\n`/inv <slot>` — Envanter görüntüle\n`/stats [slot]` — İstatistikler',
+                        name: 'ğŸ“Š Durum & Bilgi',
+                        value: '`/status` â€” TÃ¼m botlarÄ±n durumu\n`/status <slot>` â€” Belirli bot durumu\n`/inv <slot>` â€” Envanter gÃ¶rÃ¼ntÃ¼le\n`/stats [slot]` â€” Ä°statistikler',
                         inline: true
                     },
                     {
-                        name: '🎮 Bot Kontrolü',
-                        value: '`/start <slot>` — Botu başlat\n`/stop <slot>` — Botu durdur\n`/restart <slot|all>` — Yeniden başlat\n`/pause <slot>` — Anti-AFK durdur\n`/resume <slot>` — Anti-AFK devam',
+                        name: 'ğŸ® Bot KontrolÃ¼',
+                        value: '`/start <slot>` â€” Botu baÅŸlat\n`/stop <slot>` â€” Botu durdur\n`/restart <slot|all>` â€” Yeniden baÅŸlat\n`/pause <slot>` â€” Anti-AFK durdur\n`/resume <slot>` â€” Anti-AFK devam',
                         inline: true
                     },
                     {
-                        name: '👤 Hesap Yönetimi',
-                        value: '`/account add` — Yeni hesap ekle (MS Auth)\n`/account remove <slot>` — Hesap sil\n`/account list` — Hesapları listele',
+                        name: 'ğŸ‘¤ Hesap YÃ¶netimi',
+                        value: '`/account add` â€” Yeni hesap ekle (MS Auth)\n`/account remove <slot>` â€” Hesap sil\n`/account list` â€” HesaplarÄ± listele',
                         inline: false
                     },
                     {
-                        name: '🏃 Hareket',
-                        value: '`/forward <slot> <blok>` — İleri git\n`/back <slot> <blok>` — Geri git\n`/left <slot> <blok>` — Sola git\n`/right <slot> <blok>` — Sağa git',
+                        name: 'ğŸƒ Hareket',
+                        value: '`/forward <slot> <blok>` â€” Ä°leri git\n`/back <slot> <blok>` â€” Geri git\n`/left <slot> <blok>` â€” Sola git\n`/right <slot> <blok>` â€” SaÄŸa git',
                         inline: true
                     },
                     {
-                        name: '🗑️ Eşya',
-                        value: '`/drop <slot> all` — Tüm eşyaları bırak\n`/drop <slot> <eşya> [adet]` — Belirli eşya bırak',
+                        name: 'ğŸ—‘ï¸ EÅŸya',
+                        value: '`/drop <slot> all` â€” TÃ¼m eÅŸyalarÄ± bÄ±rak\n`/drop <slot> <eÅŸya> [adet]` â€” Belirli eÅŸya bÄ±rak',
                         inline: true
                     },
                     {
-                        name: '🛡️ Güvenlik',
-                        value: '`/whitelist add <oyuncu>` — Whitelist\'e ekle\n`/whitelist remove <oyuncu>` — Whitelist\'ten çıkar\n`/whitelist list` — Whitelist\'i göster\n`/protect <slot>` — Spawner korumasını aç/kapat',
+                        name: 'ğŸ›¡ï¸ GÃ¼venlik',
+                        value: '`/whitelist add <oyuncu>` â€” Whitelist\'e ekle\n`/whitelist remove <oyuncu>` â€” Whitelist\'ten Ã§Ä±kar\n`/whitelist list` â€” Whitelist\'i gÃ¶ster\n`/protect [on|off]` â€” Lobby+Spawner korumasÄ±nÄ± aÃ§/kapat\n`/stats [slot]` â€” Bot istatistikleri',
                         inline: false
                     }
                 ],
-                footer: { text: 'Minecraft AFK Bot Manager • github.com/BenOnur/Minecraft-AFK-Bot-Manager' }
+                footer: { text: 'Minecraft AFK Bot Manager â€¢ github.com/BenOnur/Minecraft-AFK-Bot-Manager' }
             }
         };
     }
 
     handleGenericHelp() {
         const helpText = `
-📋 **Available Commands:**
+ğŸ“‹ **Available Commands:**
 
 **Messaging:**
 /say 1 <message> - Send to slot 1
@@ -633,23 +652,12 @@ export class CommandHandler {
 **Security:**
 /whitelist add <player> - Add player to alert whitelist
 /whitelist list - Show whitelisted players
-/protect <slot> - Toggle spawner protection
+/protect [on|off] - Toggle lobby + spawner protection
 /stats [slot] - Bot statistics
     `.trim();
 
         return { success: true, message: helpText };
     }
 
-    async handleProtect(args) {
-        if (args.length === 0) {
-            return { success: false, message: 'Usage: /protect <slot>' };
-        }
-
-        const slot = parseInt(args[0]);
-        if (isNaN(slot)) {
-            return { success: false, message: 'Invalid slot number' };
-        }
-
-        return await this.botManager.toggleProtection(slot);
-    }
 }
+

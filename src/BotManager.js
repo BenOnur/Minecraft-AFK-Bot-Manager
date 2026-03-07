@@ -186,13 +186,14 @@ export class BotManager {
     async addAccount(platform, userId) {
         const existingSlots = Array.from(this.bots.keys());
         const newSlot = existingSlots.length > 0 ? Math.max(...existingSlots) + 1 : 1;
+        const tempAuthUsername = `New_Account_${newSlot}_${Date.now()}`;
 
         const initMessage = `🚀 **Initializing New Account**\nSlot: ${newSlot}\nStatus: Waiting for Microsoft Auth...`;
         this.sendPlatformMessage(platform, userId, initMessage);
 
         const tempConfig = {
             slot: newSlot,
-            username: `New_Account_${newSlot}`, // Temporary
+            username: tempAuthUsername, // Temporary auth/session key
             auth: 'microsoft',
             onMsaCode: (data) => {
                 const codeMessage = `🔐 **Microsoft Authentication Required**\n\n1. Go to: ${data.verification_uri}\n2. Enter Code: **${data.user_code}**\n\nThe bot will start automatically after login.`;
@@ -215,33 +216,27 @@ export class BotManager {
             this.config.minecraft.accounts.push({
                 username: username,
                 auth: 'microsoft',
-                slot: newSlot
+                slot: newSlot,
+                authUsername: tempAuthUsername
             });
             await this.saveConfig();
 
-            // Stop temp bot, rename session folder, create permanent bot
+            // Stop temp bot and create permanent bot using same auth/session key.
             await bot.stop();
-
-            try {
-                await new Promise(resolve => setTimeout(resolve, 1000));
-
-                const oldPath = path.resolve(`./sessions/New_Account_${newSlot}`);
-                const newPath = path.resolve(`./sessions/${username}`);
-
-                try {
-                    await fs.rm(newPath, { recursive: true, force: true });
-                } catch (e) { /* ignore */ }
-
-                await fs.rename(oldPath, newPath);
-                logger.info(`[Slot ${newSlot}] Renamed session folder to ${username}`);
-            } catch (err) {
-                logger.error(`[Slot ${newSlot}] Failed to rename session folder: ${err.message}`);
-            }
+            await new Promise(resolve => setTimeout(resolve, 1000));
 
             // Create new bot instance with correct session path
             const realAccountConfig = this.config.minecraft.accounts.find(a => a.slot === newSlot);
+            const runtimeAccountConfig = {
+                ...realAccountConfig,
+                onMsaCode: (data) => {
+                    const codeMessage = `🔐 **Microsoft Authentication Required**\n\n1. Go to: ${data.verification_uri}\n2. Enter Code: **${data.user_code}**\n\nThe bot will start automatically after login.`;
+                    this.sendPlatformMessage(platform, userId, codeMessage);
+                    logger.info(`[Slot ${newSlot}] Auth Code (re-auth): ${data.user_code}`);
+                }
+            };
 
-            const newBot = new MinecraftBot(this.config, realAccountConfig);
+            const newBot = new MinecraftBot(this.config, runtimeAccountConfig);
             newBot.onProximityAlert = (p, d) => this.handleProximityAlert(newSlot, p, d);
             newBot.onConnect = (h, v) => this.handleConnect(newSlot, h, v);
             newBot.onLobbyDetected = (inLobby) => this.handleLobbyDetected(newSlot, inLobby);
@@ -479,37 +474,35 @@ export class BotManager {
         await this.saveConfig();
         return { success: true, message: `Removed ${username} from whitelist` };
     }
-
-    async toggleProtection(slot) {
-        // 1. Update config first (persistence)
-        const accountConfig = this.config.minecraft.accounts.find(acc => acc.slot === slot);
-        if (!accountConfig) {
-            return { success: false, message: `Slot ${slot} not found in configuration.` };
+    async toggleProtection(forceState = null) {
+        if (!this.config.settings.protection) {
+            this.config.settings.protection = {};
         }
 
-        // Toggle state (default to config setting if undefined)
-        const currentGlobal = this.config.settings.protection?.enabled || false;
-        const currentState = accountConfig.protectionEnabled !== undefined ? accountConfig.protectionEnabled : currentGlobal;
-        const newState = !currentState;
+        const currentState = this.config.settings.protection.enabled === true;
+        const newState = typeof forceState === 'boolean' ? forceState : !currentState;
 
-        accountConfig.protectionEnabled = newState;
+        this.config.settings.protection.enabled = newState;
 
-        try {
-            await this.saveConfig();
-        } catch (error) {
-            logger.error(`Failed to save protection state for slot ${slot}: ${error.message}`);
-            return { success: false, message: 'Failed to save configuration.' };
+        // Legacy per-slot overrides are removed so global behavior stays consistent.
+        for (const accountConfig of this.config.minecraft.accounts) {
+            if (Object.prototype.hasOwnProperty.call(accountConfig, 'protectionEnabled')) {
+                delete accountConfig.protectionEnabled;
+            }
         }
 
-        // 2. Update running bot if exists
-        const bot = this.bots.get(slot);
-        if (bot) {
+        const saved = await this.saveConfig();
+        if (!saved) {
+            return { success: false, message: 'Protection state could not be saved.' };
+        }
+
+        for (const bot of this.bots.values()) {
             bot.toggleProtection(newState);
         }
 
         return {
             success: true,
-            message: `Protection for Slot ${slot} is now ${newState ? 'VP AÇIK' : 'VP KAPALI'} (kaydedildi).`,
+            message: `Protection is now ${newState ? 'VP ACIK' : 'VP KAPALI'} (lobby + spawner).`,
             enabled: newState
         };
     }

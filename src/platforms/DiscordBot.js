@@ -43,9 +43,9 @@ export class DiscordBot {
             this.client.on(Events.ClientReady, () => {
                 logger.info(`Discord bot logged in as ${this.client.user.tag}`);
 
-                // Otomatik log başlatma
+                // Otomatik log baÅŸlatma
                 if (this.config.discord.logChannelId) {
-                    logger.info(`Discord: Otomatik log akışı başlatılıyor (Kanal: ${this.config.discord.logChannelId})`);
+                    logger.info(`Discord: Otomatik log akÄ±ÅŸÄ± baÅŸlatÄ±lÄ±yor (Kanal: ${this.config.discord.logChannelId})`);
                     this.startLogStream(this.config.discord.logChannelId);
                 }
             });
@@ -59,11 +59,11 @@ export class DiscordBot {
 
                     if (this.isLogStreaming) {
                         this.stopLogStream();
-                        await message.reply('🛑 Log akışı durduruldu.');
+                        await message.reply('ğŸ›‘ Log akÄ±ÅŸÄ± durduruldu.');
                     } else {
                         const channelId = this.config.discord.logChannelId || message.channel.id;
                         this.startLogStream(channelId);
-                        await message.reply(`▶️ Log akışı başlatıldı (Kanal: <#${channelId}>).`);
+                        await message.reply(`â–¶ï¸ Log akÄ±ÅŸÄ± baÅŸlatÄ±ldÄ± (Kanal: <#${channelId}>).`);
                     }
                     return;
                 }
@@ -71,7 +71,7 @@ export class DiscordBot {
                 if (!message.content.startsWith('!') && !message.content.startsWith('/')) return;
 
                 if (!this.auth.isDiscordUserAuthorized(message.author.id, message.guildId)) {
-                    await message.reply('❌ You are not authorized to use this bot.');
+                    await message.reply('âŒ You are not authorized to use this bot.');
                     return;
                 }
 
@@ -81,7 +81,7 @@ export class DiscordBot {
                     await this.sendResponse(message, result);
                 } catch (error) {
                     logger.error(`Discord command error: ${error.message}`);
-                    await message.reply(`❌ Error: ${error.message}`);
+                    await message.reply(`âŒ Error: ${error.message}`);
                 }
             });
 
@@ -95,7 +95,7 @@ export class DiscordBot {
 
     async sendResponse(message, result) {
         if (!result) {
-            await message.reply('❌ No response');
+            await message.reply('âŒ No response');
             return;
         }
 
@@ -105,7 +105,7 @@ export class DiscordBot {
             return;
         }
 
-        // Status komutu için embed
+        // Status komutu iÃ§in embed
         if (result.data && Array.isArray(result.data) && result.data[0]?.slot) {
             const embed = result.data[0]?.status !== undefined
                 ? this.createStatusEmbed(result.data)
@@ -115,26 +115,27 @@ export class DiscordBot {
         }
 
         // Normal mesaj
-        const emoji = result.success ? '✅' : '❌';
+        const emoji = result.success ? 'âœ…' : 'âŒ';
         await message.reply(`${emoji} ${result.message}`);
     }
 
     createStatusEmbed(statuses) {
         const embed = new EmbedBuilder()
-            .setTitle('🤖 Bot Durumları')
+            .setTitle('ğŸ¤– Bot DurumlarÄ±')
             .setColor(0x5865F2)
             .setTimestamp()
             .setFooter({ text: `Toplam ${statuses.length} bot` });
 
         for (const status of statuses) {
             const emoji = this.getStatusEmoji(status.status);
-            const pausedText = status.isPaused ? ' ⏸' : '';
-            let value = `📶 **${status.status}**${pausedText}\n👤 ${status.username}`;
+            const pausedText = status.isPaused ? ' â¸' : '';
+            const protectText = status.protectionEnabled ? 'AÃ‡IK' : 'KAPALI';
+            let value = `ğŸ“¶ **${status.status}**${pausedText}\nğŸ‘¤ ${status.username}\nğŸ›¡ï¸ Koruma: **${protectText}**`;
             if (status.health !== undefined) {
-                value += `\n💗 ${Math.round(status.health)}/20 🍗 ${Math.round(status.food)}/20`;
+                value += `\nğŸ’— ${Math.round(status.health)}/20 ğŸ— ${Math.round(status.food)}/20`;
             }
             if (status.position) {
-                value += `\n📍 \`${Math.floor(status.position.x)}, ${Math.floor(status.position.y)}, ${Math.floor(status.position.z)}\``;
+                value += `\nğŸ“ \`${Math.floor(status.position.x)}, ${Math.floor(status.position.y)}, ${Math.floor(status.position.z)}\``;
             }
 
             embed.addFields({
@@ -150,31 +151,31 @@ export class DiscordBot {
     createSingleStatusEmbed(status) {
         const emoji = this.getStatusEmoji(status.status);
         const embed = new EmbedBuilder()
-            .setTitle(`${emoji} Slot ${status.slot} — ${status.username}`)
+            .setTitle(`${emoji} Slot ${status.slot} â€” ${status.username}`)
             .setColor(this.getStatusColor(status.status))
             .setTimestamp();
 
         embed.addFields(
-            { name: '📶 Durum', value: status.status, inline: true },
-            { name: '⏸ Duraklatıldı', value: status.isPaused ? 'Evet' : 'Hayır', inline: true },
-            { name: '\u200b', value: '\u200b', inline: true }
+            { name: 'ğŸ“¶ Durum', value: status.status, inline: true },
+            { name: 'â¸ DuraklatÄ±ldÄ±', value: status.isPaused ? 'Evet' : 'HayÄ±r', inline: true },
+            { name: 'ğŸ›¡ï¸ Koruma', value: status.protectionEnabled ? 'AÃ‡IK' : 'KAPALI', inline: true }
         );
 
         if (status.health !== undefined) {
             embed.addFields(
-                { name: '💗 Can', value: `${Math.round(status.health)}/20`, inline: true },
-                { name: '🍗 Açlık', value: `${Math.round(status.food)}/20`, inline: true },
+                { name: 'ğŸ’— Can', value: `${Math.round(status.health)}/20`, inline: true },
+                { name: 'ğŸ— AÃ§lÄ±k', value: `${Math.round(status.food)}/20`, inline: true },
                 { name: '\u200b', value: '\u200b', inline: true }
             );
         }
 
         if (status.position) {
             const pos = `\`${Math.floor(status.position.x)}, ${Math.floor(status.position.y)}, ${Math.floor(status.position.z)}\``;
-            embed.addFields({ name: '📍 Konum', value: pos, inline: false });
+            embed.addFields({ name: 'ğŸ“ Konum', value: pos, inline: false });
         }
 
         if (status.reconnectAttempts > 0) {
-            embed.addFields({ name: '🔄 Reconnect Denemesi', value: `${status.reconnectAttempts}`, inline: true });
+            embed.addFields({ name: 'ğŸ”„ Reconnect Denemesi', value: `${status.reconnectAttempts}`, inline: true });
         }
 
         return embed;
@@ -182,7 +183,7 @@ export class DiscordBot {
 
     createInventoryEmbed(items, title) {
         const embed = new EmbedBuilder()
-            .setTitle('🎒 ' + title)
+            .setTitle('ğŸ’ ' + title)
             .setColor(0x00FF00)
             .setTimestamp();
 
@@ -193,7 +194,7 @@ export class DiscordBot {
 
         let description = '';
         for (const item of items.slice(0, 25)) { // Discord limit 25 fields
-            description += `• ${item.count}x ${item.name}\n`;
+            description += `â€¢ ${item.count}x ${item.name}\n`;
         }
 
         embed.setDescription(description);
@@ -207,11 +208,11 @@ export class DiscordBot {
 
     getStatusEmoji(status) {
         switch (status) {
-            case 'online': return '🟢';
-            case 'offline': return '⚫';
-            case 'error': return '🔴';
-            case 'kicked': return '🟠';
-            default: return '⚪';
+            case 'online': return 'ğŸŸ¢';
+            case 'offline': return 'âš«';
+            case 'error': return 'ğŸ”´';
+            case 'kicked': return 'ğŸŸ ';
+            default: return 'âšª';
         }
     }
 
@@ -296,3 +297,4 @@ export class DiscordBot {
         }
     }
 }
+
