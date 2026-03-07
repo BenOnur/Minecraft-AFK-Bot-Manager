@@ -1,233 +1,335 @@
 # Minecraft AFK Bot Manager
 
-VDS üzerinde çalışan, Telegram ve Discord üzerinden kontrol edilebilen çoklu Minecraft hesap yönetim sistemi.
+Minecraft botlarinizi tek bir yerden yonetmek icin gelistirilmis coklu hesap yoneticisi.
+Botlar Minecraft sunucusuna baglanir; siz Telegram, Discord veya konsoldan komut gonderirsiniz.
 
-## 🎮 Özellikler
+Bu proje su amacla tasarlandi:
+- Coklu hesapla AFK kalmak
+- Uzak mesafeden bot kontrol etmek
+- Tehlike durumlarinda (oyuncu yakinligi/lobby) koruma aksiyonlari almak
 
-- ✅ Çoklu Minecraft hesap desteği (slot bazlı)
-- ✅ Telegram bot kontrolü
-- ✅ Discord bot kontrolü
-- ✅ Otomatik yeniden bağlanma
-- ✅ Anti-AFK sistemi
-- ✅ Envanter yönetimi
-- ✅ Detaylı durum takibi
-- ✅ Düşük kaynak kullanımı (VDS optimizasyonu)
+## 0) 5 dakikada hizli baslangic
 
-## 📋 Gereksinimler
+Hic bilmeyen biri icin en kisa kurulum akisi:
 
-### Yerel Test için
-- Node.js 18+ (LTS versiyonu)
-- Minecraft hesapları (Microsoft)
-- Telegram Bot Token (opsiyonel)
-- Discord Bot Token (opsiyonel)
+1. Node.js kur (18+ / onerilen 22 LTS) ve `node -v` ile kontrol et.
+2. Projeyi indir: `git clone ...` ve klasore gir.
+3. `npm install` calistir.
+4. `config.example.json` dosyasini `config.json` yapip duzenle.
+5. `npm start` calistir.
+6. Telegram/Discord uzerinden `/account add` ile hesap ekle.
 
-### VDS/Sunucu için
-- Ubuntu 20.04+ (veya benzeri Linux)
-- 2-3GB RAM (10 hesap için)
-- 2 vCore CPU
-- 10-20GB Disk
+Hepsi bu kadar. Ayrintilar asagida.
 
-## 🚀 Kurulum
+## 1) Neler yapar?
 
-### 1. Bağımlılıkları Yükle
+- Slot bazli coklu hesap (1, 2, 3...)
+- Telegram ve Discord uzaktan komut destegi
+- Otomatik reconnect
+- Anti-AFK hareketleri
+- Otomatik yemek yeme
+- Envanter ve arac dayaniklilik uyarilari
+- Proximity alarmi
+- Lobby algilama + geri donus denemesi (`/home sp1` gibi)
+- Spawner koruma protokolu
+- Slot bazli `/protect` ac/kapat
+
+`/protect <slot>` ile ilgili not:
+- Bu komut ilgili slot icin korumayi acip/kapatir (toggle).
+- `/protect <slot> on` veya `/protect <slot> off` ile net durum verilebilir.
+- Koruma kapaliyken diger ozellikler (yon verme, AFK, /say, yemek yeme vb.) calismaya devam eder.
+
+## 2) Gereksinimler
+
+- Node.js 18+ (onerilen: Node.js 22 LTS)
+- npm
+- Microsoft Minecraft hesabi
+- (Opsiyonel) Telegram bot token
+- (Opsiyonel) Discord bot token
+
+Sunucu/VDS icin pratik minimum:
+- 2 vCPU
+- 2-4 GB RAM (hesap sayisina gore artirabilirsiniz)
+- Ubuntu 20.04+
+
+Node kontrol komutlari:
+
+```bash
+node -v
+npm -v
+```
+
+Node.js yoksa:
+- Windows: https://nodejs.org adresinden LTS surumunu yukleyin.
+- Ubuntu:
+
+```bash
+sudo apt update
+sudo apt install -y curl
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt install -y nodejs
+node -v
+npm -v
+```
+
+## 3) Kurulum (Sifirdan)
+
+### 3.1 Projeyi indir
+
+```bash
+git clone https://github.com/BenOnur/Minecraft-AFK-Bot-Manager.git
+cd Minecraft-AFK-Bot-Manager
+```
+
+### 3.2 Bagimliliklari yukle
 
 ```bash
 npm install
 ```
 
-### 2. Konfigürasyon Dosyasını Oluştur
+### 3.3 `config.json` olustur
 
+Linux/macOS:
 ```bash
 cp config.example.json config.json
 ```
 
-### 3. `config.json` Dosyasını Düzenle
+Windows (PowerShell):
+```powershell
+Copy-Item config.example.json config.json
+```
+
+### 3.4 `config.json` duzenle
+
+En azindan su alanlari doldurun:
+- `minecraft.server.host`
+- `minecraft.server.port`
+- `minecraft.server.version`
+- Telegram/Discord kullanacaksaniz token ve allowedUsers
+
+Ornek:
 
 ```json
 {
   "minecraft": {
     "server": {
-      "host": "play.yourserver.com",
+      "host": "play.sunucuadresin.com",
       "port": 25565,
       "version": "1.20.1"
     },
-    "accounts": [
-      {
-        "slot": 1,
-        "username": "email@example.com",
-        "auth": "microsoft"
-      }
-    ]
+    "accounts": []
   },
   "telegram": {
     "enabled": true,
-    "token": "YOUR_TOKEN",
+    "token": "TELEGRAM_BOT_TOKEN",
     "allowedUsers": [123456789]
   },
   "discord": {
-    "enabled": true,
-    "token": "YOUR_TOKEN",
-    "allowedUsers": ["YOUR_USER_ID"],
-    "guildId": "YOUR_GUILD_ID"
+    "enabled": false,
+    "token": "DISCORD_BOT_TOKEN",
+    "allowedUsers": ["123456789012345678"],
+    "guildId": "123456789012345678",
+    "logChannelId": "123456789012345678"
+  },
+  "settings": {
+    "autoReconnect": true,
+    "reconnectDelay": 5000,
+    "maxReconnectAttempts": 10,
+    "antiAfkEnabled": true,
+    "antiAfkInterval": 30000,
+    "proximityAlertEnabled": true,
+    "alertDistance": 96,
+    "alertCooldown": 300000,
+    "alertWhitelist": [],
+    "lobbyReturnCommand": "/home sp1",
+    "protection": {
+      "enabled": false,
+      "emergencyDistance": 10,
+      "blockType": "spawner",
+      "radius": 64,
+      "breakDelay": 300
+    }
   }
 }
 ```
 
-### 4. Telegram Bot Oluşturma
+Onemli guvenlik notu:
+- `allowedUsers` bos olursa kod mantigi geregi herkes komut gonderebilir.
+- Mutlaka kendi Telegram ID/Discord ID degerlerinizi girin.
 
-1. [@BotFather](https://t.me/BotFather) ile konuş
-2. `/newbot` komutunu kullan
-3. Bot adı ve kullanıcı adı belirle
-4. Token'ı `config.json` içine yapıştır
-5. Kendi Telegram ID'ni bul: [@userinfobot](https://t.me/userinfobot)
-6. ID'ni `allowedUsers` listesine ekle
-
-### 5. Discord Bot Oluşturma
-
-1. [Discord Developer Portal](https://discord.com/developers/applications)'a git
-2. "New Application" tıkla
-3. "Bot" sekmesinden bot oluştur
-4. "MESSAGE CONTENT INTENT" etkinleştir
-5. Token'ı `config.json` içine yapıştır
-6. OAuth2 > URL Generator: `bot` + `Send Messages`, `Read Messages` seç
-7. URL ile botu sunucuna davet et
-8. Kendi Discord User ID'ni al (Developer Mode açık olmalı, sağ tık > Copy ID)
-
-### 6. Çalıştır
+## 4) Ilk calistirma
 
 ```bash
 npm start
 ```
 
-## 📱 Komutlar
+Uygulama baslayinca:
+- Telegram/Discord botlari aktifse komut alir.
+- `minecraft.accounts` doluysa botlar baglanmayi dener.
+- Hesap yoksa `/account add` ile hesap ekleyebilirsiniz.
 
-### Mesajlaşma
-- `/say 1 <mesaj>` - Slot 1'e mesaj gönder
-- `/say [1] <mesaj>` - Alternatif format
-- `/1 <mesaj>` - Kısa format
-- `/say 1,3,5 <mesaj>` - Çoklu slot'a gönder
-- `/say 1-3 <mesaj>` - Slot aralığına gönder
-- `/all <mesaj>` - Tüm botlara gönder
+## 5) Microsoft hesap ekleme (`/account add`)
 
-### Durum
-- `/status` - Tüm botların durumu
-- `/status 1` - Slot 1'in durumu
-- `/s` - `/status` kısayolu
+1. Telegram/Discord'dan `/account add` gonderin.
+2. Gelen Microsoft linkini acin.
+3. Verilen kodu girip hesaba giris yapin.
+4. Islem tamamlaninca hesap yeni bir slot olarak kaydedilir.
+5. Gerekirse `/account list` ile kontrol edin.
 
-### Bot Kontrolü
-- `/restart 1` (veya `/reconnect 1`) - Slot 1'i yeniden başlat
-- `/restart all` - Hepsini yeniden başlat
-- `/stop 1` (veya `/disconnect 1`) - Slot 1'i durdur
-- `/start 1` - Slot 1'i başlat
-- `/pause 1` - Slot 1'i duraklat
-- `/resume 1` - Slot 1'i devam ettir
+Oturum verileri `sessions/` klasorunde tutulur. Bu klasoru silerseniz tekrar giris gerekebilir.
 
-### Envanter
-- `/inv 1` - Slot 1'in envanterini göster
-- `/drop 1 all` - Tüm envanteri at
-- `/drop 1 <item> <miktar>` - Belirli item'ı at
+## 6) Komutlar
 
-### Yardım
-- `/help` - Tüm komutları göster
+### 6.1 Mesajlasma
 
-## 🖥️ VDS'e Kurulum (Ubuntu 20.04+)
+- `/say <slot|1,2,3|1-3|all> <mesaj>`
+- `/all <mesaj>`
 
-### 1. Sunucuya Bağlan ve Güncelle
+### 6.2 Durum ve bilgi
+
+- `/status`
+- `/status <slot>` (kisayol: `/s <slot>`)
+- `/stats`
+- `/stats <slot>`
+- `/inv <slot>`
+- `/help`
+
+### 6.3 Bot kontrolu
+
+- `/start <slot>`
+- `/stop <slot>` (alias: `/disconnect <slot>`)
+- `/restart <slot|all>` (alias: `/reconnect <slot|all>`)
+- `/pause <slot>`
+- `/resume <slot>`
+
+### 6.4 Hesap yonetimi
+
+- `/account add`
+- `/account remove <slot>`
+- `/account list`
+
+### 6.5 Hareket
+
+- `/forward <slot|1,2|1-3|all> <blok>` (alias: `/f`)
+- `/back <slot|1,2|1-3|all> <blok>` (alias: `/b`, `/backward`)
+- `/left <slot|1,2|1-3|all> <blok>` (alias: `/l`)
+- `/right <slot|1,2|1-3|all> <blok>` (alias: `/r`)
+
+### 6.6 Esya
+
+- `/drop <slot> all`
+- `/drop <slot> <esya> [adet]`
+- `/take <slot> <esya> <adet>` (su an kodda tam uygulanmamis)
+
+### 6.7 Guvenlik
+
+- `/whitelist add <oyuncu>`
+- `/whitelist remove <oyuncu>`
+- `/whitelist list`
+- `/protect <slot>` (toggle)
+- `/protect <slot> on`
+- `/protect <slot> off`
+
+Koruma acik oldugunda:
+- Proximity kontrolu aktif olur
+- Lobby algilama ve geri donus denemesi aktif olur
+- Tehditte spawner koruma protokolu devreye girebilir
+
+## 7) Telegram kurulum notlari
+
+1. Telegram'da `@BotFather` acin.
+2. `/newbot` ile bot olusturun.
+3. Token degerini alin, `config.json -> telegram.token` alanina girin.
+4. Kendi Telegram user ID'nizi ogrenin (`@userinfobot` gibi botlarla).
+5. Bu ID'yi `telegram.allowedUsers` listesine ekleyin.
+
+Telegram ozel komutu:
+- `/logs` -> log akisina baslat/durdur
+
+## 8) Discord kurulum notlari
+
+1. https://discord.com/developers/applications adresinden app olusturun.
+2. Bot token alin, `config.json -> discord.token` alanina girin.
+3. Bot intent olarak "Message Content Intent" acik olsun.
+4. Botu sunucuya davet edin.
+5. Discord user ID ve (opsiyonel) guild ID degerlerini girin.
+
+Discord'da komutlar:
+- `!status`, `!start 1`, `!protect 1 on` gibi `!` veya `/` ile kullanabilirsiniz.
+- `!logs` ile log akisina baslat/durdur.
+
+## 9) Ubuntu VDS + PM2 ile calistirma
+
+### 9.1 PM2 kur
 
 ```bash
-# Sunucunuza SSH ile bağlanın
-ssh root@your-vds-ip
-
-# Sistemi güncelleyin ve gerekli araçları kurun
-sudo apt update && sudo apt upgrade -y
-sudo apt install -y curl git build-essential
-```
-
-### 2. Node.js v22 Kurulumu
-
-```bash
-curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
-sudo apt install -y nodejs
-```
-
-### 3. PM2 ve Proje Kurulumu
-
-```bash
-# PM2 Kur
 sudo npm install -g pm2
-
-# Projeyi İndir
-git clone https://github.com/BenOnur/Minecraft-AFK-Bot-Manager.git
-cd Minecraft-AFK-Bot-Manager
-
-# Bağımlılıkları Yükle
-npm install
 ```
 
-### 4. Config Ayarları
+### 9.2 Uygulamayi PM2 ile baslat
 
 ```bash
-# Config dosyasını oluştur
-nano config.json
-
-# (Bilgisayarınızdaki config.json içeriğini buraya yapıştırın ve kaydedin: CTRL+X -> Y -> Enter)
+pm2 start index.js --name afk-bot
+pm2 logs afk-bot
 ```
 
-### 5. Botu Başlat
+### 9.3 Sunucu yeniden acilinca otomatik baslat
 
 ```bash
-# Botu başlat
-pm2 start index.js --name "afk-bot"
-
-# Logları izle
-pm2 logs
-
-# Başlangıçta otomatik açılması için (Çıkan komutu uygulayın)
 pm2 startup
 pm2 save
 ```
 
-## 🔐 Güvenlik
+## 10) Mevcut kurulumu guncelleme (senin senaryon)
 
-- `config.json` dosyasını **asla** Git'e eklemeyin
-- Telegram/Discord bot token'larınızı paylaşmayın
-- `allowedUsers` listesini mutlaka doldurun
-- Firewall ayarlarınızı yapın (sadece SSH portu açık)
-
-## 🐛 Sorun Giderme
-
-### Bot bağlanamıyor
+Kod zaten VDS'te calisiyorsa:
 
 ```bash
-# Minecraft sunucu erişilebilir mi?
-ping play.yourserver.com
-
-# Port açık mı?
-nc -zv play.yourserver.com 25565
+cd ~/Minecraft-AFK-Bot-Manager
+git pull origin main
+npm install
+pm2 restart afk-bot --update-env
+pm2 save
 ```
 
-### Telegram/Discord bot çalışmıyor
+Canli log:
+```bash
+pm2 logs afk-bot
+```
 
-- Token'ları kontrol edin
-- Bot'un gerekli izinlere sahip olduğundan emin olun
-- `allowedUsers` listesini kontrol edin
+## 11) Sorun giderme
 
-### Yüksek bellek kullanımı
+### Bot baglanmiyor
+- `host`, `port`, `version` degerlerini kontrol edin.
+- Sunucuya VDS'ten erisim var mi test edin:
 
 ```bash
-# PM2 memory limit'i azalt
-pm2 delete minecraft-bot
-pm2 start index.js --name minecraft-bot --max-memory-restart 1500M
+ping <host>
+nc -zv <host> <port>
 ```
 
-## 📝 Lisans
+### "Unauthorized" hatasi
+- Telegram/Discord ID'niz `allowedUsers` listesinde mi kontrol edin.
+- `guildId` kullaniyorsaniz dogru sunucudan komut gonderdiginizden emin olun.
 
-MIT License
+### Surekli Microsoft girisi istiyor
+- `sessions/` klasorunun silinmedigini kontrol edin.
+- Hesabi kaldirip tekrar eklemek gerekebilir: `/account remove <slot>` sonra `/account add`.
 
-## 🤝 Katkıda Bulunma
+### PM2 calisiyor ama bot cevap vermiyor
+- `pm2 logs afk-bot` ile hata kontrol edin.
+- Gerekirse:
 
-Pull request'ler memnuniyetle karşılanır!
+```bash
+pm2 restart afk-bot --update-env
+```
 
-## ⚠️ Uyarı
+## 12) Guvenlik
 
-Bu bot eğitim amaçlıdır. Minecraft sunucu kurallarına uymayan kullanımlardan sorumluluk kabul edilmez.
+- `config.json` dosyasini herkese acik bir yerde paylasmayin.
+- Token ve kullanici ID bilgilerini gizli tutun.
+- `sessions/` klasoru hesap erisimi acisindan hassastir, yedek alirken dikkat edin.
+
+## 13) Lisans
+
+MIT
