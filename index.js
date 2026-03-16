@@ -64,6 +64,7 @@ function normalizeConfig(config) {
         autoReconnect: true,
         reconnectDelay: 5000,
         maxReconnectAttempts: 10,
+        permanentRetryAfterMaxReconnect: false,
         antiAfkEnabled: true,
         antiAfkInterval: 30000,
         proximityAlertEnabled: true,

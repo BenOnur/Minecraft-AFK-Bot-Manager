@@ -829,13 +829,21 @@ export class MinecraftBot {
 
         let delay = this.tempReconnectDelay || this.config.settings.reconnectDelay || 5000;
         this.tempReconnectDelay = null;
+        const maxAttempts = this.config.settings.maxReconnectAttempts ?? 10;
+        const permanentRetry = this.config.settings.permanentRetryAfterMaxReconnect ?? false;
 
-        if (this.reconnectAttempts >= this.config.settings.maxReconnectAttempts) {
-            logger.warn(`Slot ${this.slot}: Max reconnect attempts (${this.config.settings.maxReconnectAttempts}) reached. Entering permanent retry mode (60s interval).`);
-            delay = 60000; // 60 seconds sticky interval
+        if (this.reconnectAttempts >= maxAttempts) {
+            if (permanentRetry) {
+                logger.warn(`Slot ${this.slot}: Max reconnect attempts (${maxAttempts}) reached. Entering permanent retry mode (60s interval).`);
+                delay = 60000; // 60 seconds sticky interval
+            } else {
+                logger.error(`Slot ${this.slot}: Max reconnect attempts (${maxAttempts}) reached. Auto-reconnect stopped.`);
+                this.isManuallyStopped = true;
+                return;
+            }
         } else {
             this.reconnectAttempts++;
-            logger.info(`Slot ${this.slot}: Reconnecting in ${delay / 1000}s (attempt ${this.reconnectAttempts}/${this.config.settings.maxReconnectAttempts})`);
+            logger.info(`Slot ${this.slot}: Reconnecting in ${delay / 1000}s (attempt ${this.reconnectAttempts}/${maxAttempts})`);
         }
 
         this.reconnectTimeout = setTimeout(() => {

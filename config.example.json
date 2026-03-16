@@ -45,6 +45,7 @@
         "autoReconnect": true,
         "reconnectDelay": 5000,
         "maxReconnectAttempts": 10,
+        "permanentRetryAfterMaxReconnect": false,
         "logLevel": "info",
         "antiAfkEnabled": true,
         "antiAfkInterval": 30000,
