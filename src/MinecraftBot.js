@@ -158,7 +158,8 @@ export class MinecraftBot {
             }
 
             if (this.onConnect) {
-                this.onConnect(this.config.minecraft.server.host, this.config.minecraft.server.version || this.bot.version);
+                // Prefer real negotiated protocol version over configured value.
+                this.onConnect(this.config.minecraft.server.host, this.bot.version || this.config.minecraft.server.version);
             }
 
             this.startAutoEat();

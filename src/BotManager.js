@@ -246,7 +246,6 @@ export class BotManager {
 
             try {
                 await newBot.start();
-                this.handleConnect(newSlot, this.config.minecraft.server.host, this.config.minecraft.server.version);
             } catch (e) {
                 logger.error(`Failed to restart bot with new session: ${e.message}`);
                 this.sendPlatformMessage(platform, userId, `❌ Failed to restart with saved session: ${e.message}`);
