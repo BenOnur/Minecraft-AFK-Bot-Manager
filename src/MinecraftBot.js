@@ -50,6 +50,7 @@ export class MinecraftBot {
         this.isConnecting = false;
         this.isManuallyStopped = false;
         this.reconnectAttempts = 0;
+        this.alreadyOnlineRetries = 0;
         this.antiAfkInterval = null;
         this.proximityInterval = null;
         this.autoEatTimeout = null;
@@ -145,6 +146,7 @@ export class MinecraftBot {
                 this.stats.reconnects++;
             }
             this.reconnectAttempts = 0;
+            this.alreadyOnlineRetries = 0;
             this.isInLobby = false; // Reset lobby state on login to prevent stale state
 
             // Sneak to hide name tag
@@ -220,10 +222,23 @@ export class MinecraftBot {
             logger.warn(`Slot ${this.slot}: Kicked from reason: ${reason}`);
             this.status = 'kicked';
 
-            const reasonStr = typeof reason === 'string' ? reason : JSON.stringify(reason);
+            const reasonStrRaw = typeof reason === 'string' ? reason : JSON.stringify(reason);
+            const reasonStr = String(reasonStrRaw).toLowerCase();
+            const maxAlreadyOnlineRetries = this.config.settings.maxAlreadyOnlineRetries ?? 3;
+            const alreadyOnlineReconnectDelay = this.config.settings.alreadyOnlineReconnectDelay ?? 120000;
+
             if (reasonStr.includes('already online') || reasonStr.includes('already connected')) {
-                logger.warn(`Slot ${this.slot}: Detected 'already online' error. Waiting 30s before reconnect.`);
-                this.tempReconnectDelay = 30000;
+                this.alreadyOnlineRetries++;
+                if (this.alreadyOnlineRetries >= maxAlreadyOnlineRetries) {
+                    logger.error(`Slot ${this.slot}: 'already online' repeated ${this.alreadyOnlineRetries} times. Auto-reconnect stopped for this slot.`);
+                    this.isManuallyStopped = true;
+                    return;
+                }
+
+                logger.warn(`Slot ${this.slot}: Detected 'already online' error. Waiting ${Math.round(alreadyOnlineReconnectDelay / 1000)}s before reconnect (${this.alreadyOnlineRetries}/${maxAlreadyOnlineRetries}).`);
+                this.tempReconnectDelay = alreadyOnlineReconnectDelay;
+            } else {
+                this.alreadyOnlineRetries = 0;
             }
         });
 
