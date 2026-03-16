@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, EmbedBuilder, Events } from 'discord.js';
+import { Client, GatewayIntentBits, EmbedBuilder, Events, REST, Routes, SlashCommandBuilder } from 'discord.js';
 import { CommandHandler } from '../commands/CommandHandler.js';
 import { Auth } from '../utils/Auth.js';
 import logger from '../utils/Logger.js';
@@ -18,6 +18,89 @@ export class DiscordBot {
         this.logBuffer = [];
         this.logFlushInterval = null;
         this.logCallback = this.handleLog.bind(this);
+    }
+
+    // Define slash commands
+    async registerSlashCommands() {
+        const rest = new REST({ version: '10' }).setToken(this.config.discord.token);
+
+        const commands = [
+            new SlashCommandBuilder()
+                .setName('status')
+                .setDescription('Bot durumlarını göster')
+                .addIntegerOption(opt => opt.setName('slot').setDescription('Slot numarası').setRequired(false)),
+            new SlashCommandBuilder()
+                .setName('start')
+                .setDescription('Botu başlat')
+                .addIntegerOption(opt => opt.setName('slot').setDescription('Slot numarası').setRequired(true)),
+            new SlashCommandBuilder()
+                .setName('stop')
+                .setDescription('Botu durdur')
+                .addIntegerOption(opt => opt.setName('slot').setDescription('Slot numarası').setRequired(true)),
+            new SlashCommandBuilder()
+                .setName('restart')
+                .setDescription('Botu yeniden başlat')
+                .addStringOption(opt => opt.setName('slot').setDescription('Slot veya "all"').setRequired(true)),
+            new SlashCommandBuilder()
+                .setName('pause')
+                .setDescription('Anti-AFK durdur')
+                .addIntegerOption(opt => opt.setName('slot').setDescription('Slot numarası').setRequired(true)),
+            new SlashCommandBuilder()
+                .setName('resume')
+                .setDescription('Anti-AFK devam ettir')
+                .addIntegerOption(opt => opt.setName('slot').setDescription('Slot numarası').setRequired(true)),
+            new SlashCommandBuilder()
+                .setName('inv')
+                .setDescription('Envanter görüntüle')
+                .addIntegerOption(opt => opt.setName('slot').setDescription('Slot numarası').setRequired(true)),
+            new SlashCommandBuilder()
+                .setName('stats')
+                .setDescription('Bot istatistikleri')
+                .addIntegerOption(opt => opt.setName('slot').setDescription('Slot numarası').setRequired(false)),
+            new SlashCommandBuilder()
+                .setName('say')
+                .setDescription('Slota mesaj gönder')
+                .addStringOption(opt => opt.setName('slot').setDescription('Slot(lar)').setRequired(true))
+                .addStringOption(opt => opt.setName('mesaj').setDescription('Mesaj').setRequired(true)),
+            new SlashCommandBuilder()
+                .setName('all')
+                .setDescription('Tüm botlara mesaj gönder')
+                .addStringOption(opt => opt.setName('mesaj').setDescription('Mesaj').setRequired(true)),
+            new SlashCommandBuilder()
+                .setName('whitelist')
+                .setDescription('Whitelist yönetimi')
+                .addStringOption(opt => opt.setName('islem').setDescription('add, remove veya list').setRequired(true))
+                .addStringOption(opt => opt.setName('oyuncu').setDescription('Oyuncu adı').setRequired(false)),
+            new SlashCommandBuilder()
+                .setName('protect')
+                .setDescription('Spawner korumasını aç/kapat')
+                .addIntegerOption(opt => opt.setName('slot').setDescription('Slot numarası').setRequired(true)),
+            new SlashCommandBuilder()
+                .setName('logs')
+                .setDescription('Log akışını aç/kapat')
+                .addChannelOption(opt => opt.setName('kanal').setDescription('Log kanalı').setRequired(false)),
+            new SlashCommandBuilder()
+                .setName('help')
+                .setDescription('Yardım menüsünü göster')
+        ].map(cmd => cmd.toJSON());
+
+        try {
+            if (this.config.discord.guildId) {
+                await rest.put(
+                    Routes.applicationGuildCommands(this.client.user.id, this.config.discord.guildId),
+                    { body: commands }
+                );
+                logger.info(`Discord: ${commands.length} slash komutu kaydedildi (guild: ${this.config.discord.guildId})`);
+            } else {
+                await rest.put(
+                    Routes.applicationCommands(this.client.user.id),
+                    { body: commands }
+                );
+                logger.info(`Discord: ${commands.length} global slash komutu kaydedildi`);
+            }
+        } catch (err) {
+            logger.error(`Discord slash komut kayıt hatası: ${err.message}`);
+        }
     }
 
     async start() {
@@ -40,8 +123,11 @@ export class DiscordBot {
                 ]
             });
 
-            this.client.on(Events.ClientReady, () => {
+            this.client.on(Events.ClientReady, async () => {
                 logger.info(`Discord bot logged in as ${this.client.user.tag}`);
+
+                // Register slash commands
+                await this.registerSlashCommands();
 
                 // Otomatik log başlatma
                 if (this.config.discord.logChannelId) {
@@ -85,6 +171,81 @@ export class DiscordBot {
                 }
             });
 
+            // Slash command handler
+            this.client.on('interactionCreate', async (interaction) => {
+                if (!interaction.isChatInputCommand()) return;
+
+                if (!this.auth.isDiscordUserAuthorized(interaction.user.id, interaction.guildId)) {
+                    await interaction.reply({ content: '❌ Yetkin yok.', ephemeral: true });
+                    return;
+                }
+
+                const { commandName, options } = interaction;
+
+                try {
+                    let commandContent = '/' + commandName;
+                    const args = [];
+
+                    // Map slash command options to args array
+                    if (commandName === 'status') {
+                        const slot = options.getInteger('slot');
+                        if (slot) args.push(slot.toString());
+                    } else if (commandName === 'start' || commandName === 'stop' || commandName === 'pause' || commandName === 'resume' || commandName === 'inv' || commandName === 'protect') {
+                        args.push(options.getInteger('slot').toString());
+                    } else if (commandName === 'restart') {
+                        args.push(options.getString('slot'));
+                    } else if (commandName === 'stats') {
+                        const slot = options.getInteger('slot');
+                        if (slot) args.push(slot.toString());
+                    } else if (commandName === 'say') {
+                        args.push(options.getString('slot'));
+                        args.push(options.getString('mesaj'));
+                    } else if (commandName === 'all') {
+                        args.push(options.getString('mesaj'));
+                    } else if (commandName === 'whitelist') {
+                        args.push(options.getString('islem'));
+                        const oyuncu = options.getString('oyuncu');
+                        if (oyuncu) args.push(oyuncu);
+                    } else if (commandName === 'logs') {
+                        const kanal = options.getChannel('kanal');
+                        if (kanal) {
+                            if (this.isLogStreaming) {
+                                this.stopLogStream();
+                                await interaction.reply('🛑 Log akışı durduruldu.');
+                            } else {
+                                this.startLogStream(kanal.id);
+                                await interaction.reply(`▶️ Log akışı başlatıldı (Kanal: <#${kanal.id}>).`);
+                            }
+                            return;
+                        } else {
+                            // Toggle
+                            if (this.isLogStreaming) {
+                                this.stopLogStream();
+                                await interaction.reply('🛑 Log akışı durduruldu.');
+                            } else {
+                                await interaction.reply('❌ Log akışı için kanal belirtin veya önce bir kanala log başlatın.');
+                            }
+                            return;
+                        }
+                    } else if (commandName === 'help') {
+                        // Handle help
+                        const result = await this.commandHandler.handleCommand('/help', 'discord', interaction.user);
+                        await this.sendResponse(interaction, result);
+                        return;
+                    }
+
+                    const result = await this.commandHandler.handleCommand(commandContent + (args.length ? ' ' + args.join(' ') : ''), 'discord', interaction.user);
+                    await this.sendResponse(interaction, result);
+                } catch (error) {
+                    logger.error(`Discord slash command error: ${error.message}`);
+                    if (interaction.deferred || interaction.replied) {
+                        await interaction.followUp({ content: `Error: ${error.message}`, ephemeral: true });
+                    } else {
+                        await interaction.reply({ content: `Error: ${error.message}`, ephemeral: true });
+                    }
+                }
+            });
+
             await this.client.login(this.config.discord.token);
             logger.info('Discord bot started successfully');
 
@@ -93,30 +254,55 @@ export class DiscordBot {
         }
     }
 
-    async sendResponse(message, result) {
+    async sendResponse(target, result) {
+        // target can be a Message (prefix commands) or Interaction (slash commands)
+        const isInteraction =
+            typeof target.followUp === 'function' &&
+            typeof target.reply === 'function' &&
+            'replied' in target;
+
+        const reply = async (payload) => {
+            if (isInteraction) {
+                if (target.deferred || target.replied) {
+                    await target.followUp(payload);
+                } else {
+                    await target.reply(payload);
+                }
+            } else {
+                await target.reply(payload);
+            }
+        };
+
         if (!result) {
-            await message.reply('❌ No response');
+            await reply({ content: 'No response' });
             return;
         }
 
         if (result.type === 'embed' && result.data) {
             const embed = new EmbedBuilder(result.data);
-            await message.reply({ embeds: [embed] });
+            await reply({ embeds: [embed] });
             return;
         }
 
-        // Status komutu için embed
+        // Status command embed
         if (result.data && Array.isArray(result.data) && result.data[0]?.slot) {
             const embed = result.data[0]?.status !== undefined
                 ? this.createStatusEmbed(result.data)
                 : this.createInventoryEmbed(result.data, result.message);
-            await message.reply({ embeds: [embed] });
+            await reply({ embeds: [embed] });
             return;
         }
 
-        // Normal mesaj
-        const emoji = result.success ? '✅' : '❌';
-        await message.reply(`${emoji} ${result.message}`);
+        // Tek status objesi
+        if (result.data?.slot && result.data?.status) {
+            const embed = this.createSingleStatusEmbed(result.data);
+            await reply({ embeds: [embed] });
+            return;
+        }
+
+        // Normal message
+        const prefix = result.success ? '[OK]' : '[ERROR]';
+        await reply({ content: `${prefix} ${result.message}` });
     }
 
     createStatusEmbed(statuses) {

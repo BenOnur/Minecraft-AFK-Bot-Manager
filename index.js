@@ -34,6 +34,68 @@ try {
     process.exit(1);
 }
 
+function normalizeConfig(config) {
+    const normalized = config || {};
+
+    normalized.minecraft = normalized.minecraft || {};
+    normalized.minecraft.server = normalized.minecraft.server || {};
+    if (!Array.isArray(normalized.minecraft.accounts)) {
+        normalized.minecraft.accounts = [];
+    }
+
+    normalized.telegram = normalized.telegram || {};
+    if (!Array.isArray(normalized.telegram.allowedUsers)) {
+        normalized.telegram.allowedUsers = [];
+    }
+    if (normalized.telegram.enabled === undefined) {
+        normalized.telegram.enabled = false;
+    }
+
+    normalized.discord = normalized.discord || {};
+    if (!Array.isArray(normalized.discord.allowedUsers)) {
+        normalized.discord.allowedUsers = [];
+    }
+    if (normalized.discord.enabled === undefined) {
+        normalized.discord.enabled = false;
+    }
+
+    normalized.settings = normalized.settings || {};
+    const settingDefaults = {
+        autoReconnect: true,
+        reconnectDelay: 5000,
+        maxReconnectAttempts: 10,
+        antiAfkEnabled: true,
+        antiAfkInterval: 30000,
+        proximityAlertEnabled: true,
+        alertDistance: 96,
+        alertCooldown: 300000,
+        lobbyReturnCommand: '/home sp1'
+    };
+
+    for (const [key, value] of Object.entries(settingDefaults)) {
+        if (normalized.settings[key] === undefined) {
+            normalized.settings[key] = value;
+        }
+    }
+
+    if (!Array.isArray(normalized.settings.alertWhitelist)) {
+        normalized.settings.alertWhitelist = [];
+    }
+
+    normalized.settings.protection = {
+        enabled: false,
+        emergencyDistance: 10,
+        blockType: 'spawner',
+        radius: 64,
+        breakDelay: 300,
+        ...(normalized.settings.protection || {})
+    };
+
+    return normalized;
+}
+
+config = normalizeConfig(config);
+
 // Validate configuration
 function validateConfig(config) {
     if (!config.minecraft?.server?.host) {

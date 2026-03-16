@@ -54,6 +54,17 @@ export class TelegramBot {
                     return;
                 }
 
+                if (/^\/logs(?:@\w+)?(?:\s|$)/i.test(text)) {
+                    if (this.isLogStreaming) {
+                        this.stopLogStream();
+                        await ctx.reply('Log streaming stopped.');
+                    } else {
+                        this.startLogStream(ctx.chat.id);
+                        await ctx.reply('Log streaming started. Logs will be sent here in batches.');
+                    }
+                    return;
+                }
+
                 logger.info(`Telegram command from ${ctx.from.username}: ${text}`);
 
                 try {
@@ -106,9 +117,9 @@ export class TelegramBot {
     // Escape HTML special characters to prevent parse errors
     escapeHtml(text) {
         return String(text)
-            .replace(/&/g, '&')
-            .replace(/</g, '<')
-            .replace(/>/g, '>');
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
     }
 
     async sendResponse(ctx, result) {

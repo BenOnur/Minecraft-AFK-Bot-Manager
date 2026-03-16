@@ -20,7 +20,7 @@ export class BotManager {
     // Convert **bold** markdown to HTML <b> tags for Telegram
     _mdToHtml(text) {
         return String(text)
-            .replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>')
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
             .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
     }
 

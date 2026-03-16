@@ -13,6 +13,11 @@ export class CommandHandler {
 
             logger.info(`Handling command: ${command} with args: ${JSON.stringify(args)} for platform: ${platform}`);
 
+            // /1 merhaba -> /say 1 merhaba
+            if (/^\d+$/.test(command)) {
+                return await this.handleSay([command, ...args]);
+            }
+
             switch (command) {
                 case 'say':
                     return await this.handleSay(args);

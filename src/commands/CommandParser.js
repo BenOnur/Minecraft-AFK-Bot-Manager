@@ -41,7 +41,8 @@ export class CommandParser {
 
         // Normal format: /command args
         const parts = trimmed.split(/\s+/);
-        const command = parts[0].substring(1).toLowerCase(); // Remove /
+        const rawCommand = parts[0].startsWith('/') ? parts[0].substring(1) : parts[0];
+        const command = rawCommand.split('@')[0].toLowerCase(); // Strip optional @botname
         const args = parts.slice(1);
 
         return {

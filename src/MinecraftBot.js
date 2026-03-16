@@ -59,7 +59,7 @@ export class MinecraftBot {
         this.onInventoryAlert = null;
         this.tempReconnectDelay = null;
         this.protectionEnabled = this.config.settings.protection?.enabled || false;
-        if (this.accountConfig.protectionEnabled !== undefined) {
+        if (this.accountConfig.protectionEnabled !== undefined) { // Persistence override
             this.protectionEnabled = this.accountConfig.protectionEnabled;
         }
         this.reconnectTimeout = null;
@@ -105,18 +105,16 @@ export class MinecraftBot {
 
         try {
             logger.info(`Slot ${this.slot}: Starting bot for ${this.accountConfig.username}`);
-            const authUsername = this.accountConfig.authUsername || this.accountConfig.username;
-            const sessionKey = this.accountConfig.sessionKey || authUsername || `temp_${Date.now()}`;
 
             const botOptions = {
                 host: this.config.minecraft.server.host,
                 port: this.config.minecraft.server.port || 25565,
-                username: authUsername,
+                username: this.accountConfig.username,
                 auth: this.accountConfig.auth || 'microsoft',
                 version: this.config.minecraft.server.version || false,
                 hideErrors: false,
-                profilesFolder: `./sessions/${sessionKey}`,
-                checkTimeoutInterval: 60000, // Keep-alive kontrolÃ¼nÃ¼ daha toleranslÄ± yap
+                profilesFolder: `./sessions/${this.accountConfig.username || 'temp_' + Date.now()}`,
+                checkTimeoutInterval: 60000, // Keep-alive kontrolünü daha toleranslı yap
                 onMsaCode: (data) => {
                     if (this.accountConfig.onMsaCode) {
                         this.accountConfig.onMsaCode(data);
@@ -155,7 +153,7 @@ export class MinecraftBot {
             if (this.config.settings.antiAfkEnabled) {
                 this.startAntiAfk();
             }
-            if (this.config.settings.proximityAlertEnabled && this.protectionEnabled) {
+            if (this.config.settings.proximityAlertEnabled) {
                 this.startProximityCheck();
             }
 
@@ -174,19 +172,19 @@ export class MinecraftBot {
             this.bot.setControlState('sneak', true);
 
             // Lobby/maintenance detection: if position changed drastically
-            if (this.protectionEnabled && this.lastPosition && this.bot && this.bot.entity) {
+            if (this.lastPosition && this.bot && this.bot.entity) {
                 const currentPos = this.bot.entity.position;
                 const distance = this.lastPosition.distanceTo(currentPos);
 
                 if (distance > 200 && !this.isInLobby) {
-                    logger.warn(`Slot ${this.slot}: ğŸ¢ LOBBY DETECTED! Teleported ${Math.round(distance)} blocks.`);
+                    logger.warn(`Slot ${this.slot}: 🏢 LOBBY DETECTED! Teleported ${Math.round(distance)} blocks.`);
                     this.enterLobbyMode();
                     return;
                 }
             }
 
             // If returning from lobby: check if back near original position
-            if (this.protectionEnabled && this.isInLobby && this.lastPosition && this.bot && this.bot.entity) {
+            if (this.isInLobby && this.lastPosition && this.bot && this.bot.entity) {
                 const currentPos = this.bot.entity.position;
                 const distToHome = this.lastPosition.distanceTo(currentPos);
 
@@ -239,31 +237,30 @@ export class MinecraftBot {
 
             // Detect teleportation via chat (e.g., server /spawn, /warp)
             const msg = message.toLowerCase();
-            if (!this.protectionEnabled) return;
 
             // CRITICAL: Detect "Servers are updating" message which teleports players to lobby/hub
             if (msg.includes('servers are updating') || msg.includes('do not teleport')) {
-                logger.warn(`Slot ${this.slot}: ğŸš¨ SERVER UPDATE DETECTED! Entering lobby mode immediately to prevent false alarms.`);
+                logger.warn(`Slot ${this.slot}: 🚨 SERVER UPDATE DETECTED! Entering lobby mode immediately to prevent false alarms.`);
                 this.enterLobbyMode();
                 return;
             }
 
-            if (msg.includes('teleported') || msg.includes('Ä±ÅŸÄ±nlandÄ±')) {
+            if (msg.includes('teleported') || msg.includes('ışınlandı')) {
                 if (!this.isInLobby) {
                     // Verify with position check before entering lobby mode
                     setTimeout(() => {
-                        if (this.bot && this.protectionEnabled && this.bot.entity && this.lastPosition && !this.isInLobby) {
+                        if (this.bot && this.bot.entity && this.lastPosition && !this.isInLobby) {
                             const dist = this.bot.entity.position.distanceTo(this.lastPosition);
                             if (dist > 200) {
-                                logger.warn(`Slot ${this.slot}: ğŸ¢ TELEPORT DETECTED via chat: "${message}" (${Math.round(dist)} blocks). Entering lobby mode.`);
+                                logger.warn(`Slot ${this.slot}: 🏢 TELEPORT DETECTED via chat: "${message}" (${Math.round(dist)} blocks). Entering lobby mode.`);
                                 this.enterLobbyMode();
                             }
                         }
                     }, 1000);
                 } else {
-                    // Already in lobby â†’ might be returning home via /home sp1
+                    // Already in lobby → might be returning home via /home sp1
                     setTimeout(() => {
-                        if (this.bot && this.protectionEnabled && this.bot.entity && this.lastPosition && this.isInLobby) {
+                        if (this.bot && this.bot.entity && this.lastPosition && this.isInLobby) {
                             const dist = this.bot.entity.position.distanceTo(this.lastPosition);
                             if (dist < 50) {
                                 this.exitLobbyMode();
@@ -275,14 +272,12 @@ export class MinecraftBot {
 
             // Improve detection for "Your region started back up"
             if (msg.includes('region started back up') || msg.includes('we will teleport you back')) {
-                logger.info(`Slot ${this.slot}: ğŸ”„ Server region restarted! Teleport pending... Stopping lobby retry loops.`);
+                logger.info(`Slot ${this.slot}: 🔄 Server region restarted! Teleport pending... Stopping lobby retry loops.`);
                 this.stopLobbyRetry(); // Stop spamming /home sp1 so we don't interfere with server teleport
             }
         });
 
         this.bot.on('forcedMove', () => {
-            if (!this.protectionEnabled) return;
-
             // Standard Event: Forced Move (Teleport)
             // This is more reliable than chat messages for detecting return from lobby
             if (this.isInLobby && this.lastPosition && this.bot && this.bot.entity) {
@@ -290,7 +285,7 @@ export class MinecraftBot {
                 const distToHome = this.lastPosition.distanceTo(currentPos);
 
                 if (distToHome < 50) {
-                    logger.info(`Slot ${this.slot}: âš¡ ForcedMove detected return to base (${Math.round(distToHome)} blocks away). Exiting lobby mode.`);
+                    logger.info(`Slot ${this.slot}: ⚡ ForcedMove detected return to base (${Math.round(distToHome)} blocks away). Exiting lobby mode.`);
                     this.exitLobbyMode();
                 }
             } else if (!this.isInLobby && this.lastPosition && this.bot && this.bot.entity) {
@@ -299,7 +294,7 @@ export class MinecraftBot {
                 const dist = this.lastPosition.distanceTo(currentPos);
 
                 if (dist > 200) {
-                    logger.warn(`Slot ${this.slot}: âš¡ ForcedMove detected TELEPORT AWAY (${Math.round(dist)} blocks). Entering lobby mode.`);
+                    logger.warn(`Slot ${this.slot}: ⚡ ForcedMove detected TELEPORT AWAY (${Math.round(dist)} blocks). Entering lobby mode.`);
                     this.enterLobbyMode();
                 }
             }
@@ -307,7 +302,7 @@ export class MinecraftBot {
     }
 
     enterLobbyMode() {
-        if (!this.protectionEnabled || this.isInLobby) return; // Disabled or already in lobby mode
+        if (this.isInLobby) return; // Already in lobby mode, prevent duplicate triggers
         this.isInLobby = true;
         this.stats.lobbyEvents++;
 
@@ -331,7 +326,7 @@ export class MinecraftBot {
     }
 
     exitLobbyMode() {
-        logger.info(`Slot ${this.slot}: âœ… Returned from lobby! Resuming normal operation.`);
+        logger.info(`Slot ${this.slot}: ✅ Returned from lobby! Resuming normal operation.`);
         this.isInLobby = false;
         this.stopLobbyRetry();
 
@@ -351,7 +346,7 @@ export class MinecraftBot {
         if (this.config.settings.antiAfkEnabled) {
             this.startAntiAfk();
         }
-        if (this.config.settings.proximityAlertEnabled && this.protectionEnabled) {
+        if (this.config.settings.proximityAlertEnabled) {
             this.startProximityCheck();
         }
     }
@@ -369,7 +364,7 @@ export class MinecraftBot {
             }
 
             try {
-                // 1. Rastgele ZÄ±plama (%70 ÅŸans)
+                // 1. Rastgele Zıplama (%70 şans)
                 if (Math.random() > 0.3) {
                     this.bot.setControlState('jump', true);
                     setTimeout(() => {
@@ -377,7 +372,7 @@ export class MinecraftBot {
                     }, 100 + Math.random() * 100);
                 }
 
-                // 2. Hafif Rastgele BakÄ±ÅŸ DeÄŸiÅŸikliÄŸi (%50 ÅŸans)
+                // 2. Hafif Rastgele Bakış Değişikliği (%50 şans)
                 if (Math.random() > 0.5) {
                     const currentYaw = this.bot.entity.yaw;
                     const currentPitch = this.bot.entity.pitch;
@@ -386,7 +381,7 @@ export class MinecraftBot {
                     await this.bot.look(newYaw, newPitch, true);
                 }
 
-                // 3. Rastgele Bekleme SÃ¼resi (20 - 45 saniye arasÄ±)
+                // 3. Rastgele Bekleme Süresi (20 - 45 saniye arası)
                 const baseDelay = this.config.settings.antiAfkInterval || 30000;
                 const randomDelay = baseDelay * (0.8 + Math.random() * 0.7);
                 this.antiAfkInterval = setTimeout(runTick, randomDelay);
@@ -419,7 +414,7 @@ export class MinecraftBot {
         const checkInterval = 5000;
 
         const checkFood = async () => {
-            let nextDelay = checkInterval + (this.slot * 200); // Slotlar arasÄ± kaydÄ±rma
+            let nextDelay = checkInterval + (this.slot * 200); // Slotlar arası kaydırma
 
             if (!this.bot || this.status !== 'online' || this.isPaused) {
                 this.autoEatTimeout = setTimeout(checkFood, checkInterval);
@@ -488,22 +483,16 @@ export class MinecraftBot {
     }
 
     startProximityCheck() {
-        // Kontrol aralÄ±ÄŸÄ±nÄ± 1 saniyeden 2.5 saniyeye Ã§Ä±karÄ±yoruz (YÃ¼k azaltma)
+        // Kontrol aralığını 1 saniyeden 2.5 saniyeye çıkarıyoruz (Yük azaltma)
         const checkInterval = 2500 + (this.slot * 100);
 
-        if (this.proximityInterval) {
-            clearInterval(this.proximityInterval);
-            this.proximityInterval = null;
-        }
-
         this.proximityInterval = setInterval(() => {
-            if (!this.bot || this.status !== 'online' || this.isPaused || this.isInLobby || !this.protectionEnabled) return;
+            if (!this.bot || this.status !== 'online' || this.isPaused || this.isInLobby) return;
 
-            const alertDistance = this.config.settings.alertDistance || 96;
             const cooldown = this.config.settings.alertCooldown || 300000;
             const now = Date.now();
 
-            // Performans iÃ§in oyuncularÄ± Ã¶nceden filtrele
+            // Performans için oyuncuları önceden filtrele
             const currentWhitelist = (this.config.settings.alertWhitelist || []).map(u => u.toLowerCase());
 
             const players = Object.values(this.bot.entities).filter(e =>
@@ -519,26 +508,23 @@ export class MinecraftBot {
                 // Emergency disconnect
                 const emergencyDistance = this.config.settings.protection?.emergencyDistance || 10;
                 if (distance <= emergencyDistance) {
-                    logger.error(`Slot ${this.slot}: ğŸš¨ EMERGENCY: ${entity.username} at ${Math.round(distance)}m! DISCONNECTING! ğŸš¨`);
+                    logger.error(`Slot ${this.slot}: 🚨 EMERGENCY: ${entity.username} at ${Math.round(distance)}m! DISCONNECTING! 🚨`);
                     if (this.onProximityAlert) this.onProximityAlert(entity.username, distance);
                     this._protectionRunning = false;
                     this.stop();
                     return;
                 }
 
-                if (distance <= alertDistance) {
-                    const lastAlert = this.alertCooldowns.get(entity.username) || 0;
-                    if (now - lastAlert > cooldown) {
-                        this.alertCooldowns.set(entity.username, now);
+                const lastAlert = this.alertCooldowns.get(entity.username) || 0;
+                if (now - lastAlert > cooldown) {
+                    this.alertCooldowns.set(entity.username, now);
+                    logger.info(`Slot ${this.slot}: Threat detected (${entity.username} at ${Math.round(distance)}m).`);
 
-                        if (this.config.settings.protection && this.protectionEnabled) {
-                            logger.info(`Slot ${this.slot}: Threat detected (${entity.username} at ${Math.round(distance)}m).`);
-                            this.executeProtection();
-                        }
+                    // Start protection for any non-whitelisted detected player (loaded range).
+                    this.executeProtection();
 
-                        this.stats.alertsTriggered++;
-                        if (this.onProximityAlert) this.onProximityAlert(entity.username, distance);
-                    }
+                    this.stats.alertsTriggered++;
+                    if (this.onProximityAlert) this.onProximityAlert(entity.username, distance);
                 }
             }
         }, checkInterval);
@@ -569,7 +555,7 @@ export class MinecraftBot {
 
         // Safety check: Deke before shooting
         if (this.isInLobby) {
-            logger.warn(`Slot ${this.slot}: ğŸ›¡ï¸ Protection triggered but bot is in LOBBY mode. Aborting.`);
+            logger.warn(`Slot ${this.slot}: 🛡️ Protection triggered but bot is in LOBBY mode. Aborting.`);
             return;
         }
 
@@ -578,13 +564,13 @@ export class MinecraftBot {
 
         // Re-check lobby status after delay
         if (this.isInLobby) {
-            logger.warn(`Slot ${this.slot}: ğŸ›¡ï¸ Protection aborted (Lobby detected after delay).`);
+            logger.warn(`Slot ${this.slot}: 🛡️ Protection aborted (Lobby detected after delay).`);
             return;
         }
 
         this._protectionRunning = true;
 
-        logger.warn(`Slot ${this.slot}: ğŸ›¡ï¸ INITIATING SPAWNER PROTECTION PROTOCOL ğŸ›¡ï¸`);
+        logger.warn(`Slot ${this.slot}: 🛡️ INITIATING SPAWNER PROTECTION PROTOCOL 🛡️`);
 
         const blockName = this.config.settings.protection.blockType || 'spawner';
         const radius = this.config.settings.protection.radius || 64;
@@ -606,14 +592,19 @@ export class MinecraftBot {
         this.bot.setControlState('sneak', true);
 
         let totalBroken = 0;
-        let initialScan = true;
-
         // Loop: keep scanning and breaking until no spawners remain or inventory full
         while (this.bot && this.status === 'online') {
+            if (this.isInLobby) {
+                logger.warn(`Slot ${this.slot}: Lobby detected during protection. Aborting protection without disconnect.`);
+                this._protectionRunning = false;
+                if (this.bot) this.bot.setControlState('sneak', false);
+                return;
+            }
+
             // Check inventory fullness (stop if <= 2 empty slots to ensure we picked up loot)
             const emptySlots = this.bot.inventory.emptySlotCount();
             if (emptySlots <= 2) {
-                logger.warn(`Slot ${this.slot}: ğŸ“¦ Inventory nearly FULL (<=2 slots)! Stopping protection and disconnecting.`);
+                logger.warn(`Slot ${this.slot}: 📦 Inventory nearly FULL (<=2 slots)! Stopping protection and disconnecting.`);
                 break;
             }
 
@@ -625,20 +616,16 @@ export class MinecraftBot {
             });
 
             if (blocks.length === 0) {
-                if (initialScan) {
-                    // CRITICAL FIX: If 0 spawners found immediately, it's likely a false alarm (lobby/hub).
-                    // Do NOT disconnect.
-                    logger.warn(`Slot ${this.slot}: âš ï¸ Protection scan found 0 ${blockName}s. Possible false alarm (Lobby?). Aborting protection without disconnect.`);
+                if (this.isInLobby) {
+                    logger.warn(`Slot ${this.slot}: In lobby and no target blocks found. Aborting protection without disconnect.`);
                     this._protectionRunning = false;
-                    this.bot.setControlState('sneak', false);
+                    if (this.bot) this.bot.setControlState('sneak', false);
                     return;
                 }
 
-                logger.info(`Slot ${this.slot}: âœ… All ${blockName}s destroyed (${totalBroken} total). Disconnecting.`);
+                logger.info(`Slot ${this.slot}: All ${blockName}s destroyed (${totalBroken} total). Disconnecting.`);
                 break;
             }
-
-            initialScan = false;
 
             logger.info(`Slot ${this.slot}: Found ${blocks.length} ${blockName}(s) remaining. Breaking...`);
 
@@ -647,7 +634,7 @@ export class MinecraftBot {
 
                 // Emergency: check if any enemy is within 10 blocks
                 if (this.isEnemyNearby()) {
-                    logger.error(`Slot ${this.slot}: ğŸš¨ Enemy too close while breaking! EMERGENCY DISCONNECT! ğŸš¨`);
+                    logger.error(`Slot ${this.slot}: 🚨 Enemy too close while breaking! EMERGENCY DISCONNECT! 🚨`);
                     this._protectionRunning = false;
                     this.stop();
                     return;
@@ -655,7 +642,7 @@ export class MinecraftBot {
 
                 // Re-check inventory before each break
                 if (this.bot.inventory.emptySlotCount() <= 2) {
-                    logger.warn(`Slot ${this.slot}: ğŸ“¦ Inventory nearly FULL mid-break! Stopping protection and disconnecting.`);
+                    logger.warn(`Slot ${this.slot}: 📦 Inventory nearly FULL mid-break! Stopping protection and disconnecting.`);
                     break;
                 }
 
@@ -698,30 +685,6 @@ export class MinecraftBot {
         } else {
             this.protectionEnabled = !this.protectionEnabled;
         }
-
-        if (!this.protectionEnabled) {
-            if (this.proximityInterval) {
-                clearInterval(this.proximityInterval);
-                this.proximityInterval = null;
-            }
-        } else if (this.config.settings.proximityAlertEnabled && this.status === 'online' && !this.isPaused && !this.isInLobby) {
-            this.startProximityCheck();
-        }
-
-        if (!this.protectionEnabled && this.isInLobby) {
-            logger.info(`Slot ${this.slot}: Protection disabled while in lobby mode. Stopping lobby retry loop.`);
-            this.isInLobby = false;
-            this.stopLobbyRetry();
-
-            if (this.onLobbyDetected) {
-                this.onLobbyDetected(false);
-            }
-
-            if (this.config.settings.antiAfkEnabled) {
-                this.startAntiAfk();
-            }
-        }
-
         logger.info(`Slot ${this.slot}: Protection ${this.protectionEnabled ? 'ENABLED' : 'DISABLED'}`);
         return this.protectionEnabled;
     }
@@ -734,14 +697,14 @@ export class MinecraftBot {
         const returnCmd = this.config.settings.lobbyReturnCommand || '/home sp1';
 
         setTimeout(() => {
-            if (this.bot && this.isInLobby && this.protectionEnabled) {
+            if (this.bot && this.isInLobby) {
                 this.bot.chat(returnCmd);
                 logger.info(`Slot ${this.slot}: Sent ${returnCmd} (initial attempt)`);
             }
         }, 10000);
 
         this.lobbyRetryInterval = setInterval(() => {
-            if (!this.bot || !this.isInLobby || !this.protectionEnabled) {
+            if (!this.bot || !this.isInLobby) {
                 this.stopLobbyRetry();
                 return;
             }
@@ -755,7 +718,7 @@ export class MinecraftBot {
                 const distToHome = this.lastPosition.distanceTo(currentPos);
 
                 if (distToHome < 50) {
-                    logger.info(`Slot ${this.slot}: ğŸ”„ Lobby Retry Loop detected we are back at base (${Math.round(distToHome)}m). Exiting lobby mode.`);
+                    logger.info(`Slot ${this.slot}: 🔄 Lobby Retry Loop detected we are back at base (${Math.round(distToHome)}m). Exiting lobby mode.`);
                     this.exitLobbyMode();
                 }
             }
@@ -789,8 +752,8 @@ export class MinecraftBot {
             if (emptySlots <= 3 && !this.inventoryAlertSent) {
                 this.inventoryAlertSent = true;
                 const msg = emptySlots === 0
-                    ? `ğŸ“¦ **Slot ${this.slot}:** Envanter **DOLU!** (${usedSlots}/${totalSlots})`
-                    : `ğŸ“¦ **Slot ${this.slot}:** Envanter neredeyse dolu! (${usedSlots}/${totalSlots} - ${emptySlots} slot kaldÄ±)`;
+                    ? `📦 **Slot ${this.slot}:** Envanter **DOLU!** (${usedSlots}/${totalSlots})`
+                    : `📦 **Slot ${this.slot}:** Envanter neredeyse dolu! (${usedSlots}/${totalSlots} - ${emptySlots} slot kaldı)`;
                 if (this.onInventoryAlert) this.onInventoryAlert(msg);
             } else if (emptySlots > 5) {
                 this.inventoryAlertSent = false;
@@ -809,7 +772,7 @@ export class MinecraftBot {
 
                     if (percent <= 10 && !this.toolAlertSent.has(tool.slot)) {
                         this.toolAlertSent.add(tool.slot);
-                        const msg = `âš ï¸ **Slot ${this.slot}:** **${tool.name}** dayanÄ±klÄ±lÄ±ÄŸÄ± Ã§ok dÃ¼ÅŸÃ¼k! (%${percent} - ${remaining}/${tool.maxDurability})`;
+                        const msg = `⚠️ **Slot ${this.slot}:** **${tool.name}** dayanıklılığı çok düşük! (%${percent} - ${remaining}/${tool.maxDurability})`;
                         if (this.onInventoryAlert) this.onInventoryAlert(msg);
                     }
                 }
@@ -824,7 +787,7 @@ export class MinecraftBot {
 
                         if (percent <= 10 && !this.toolAlertSent.has(tool.slot)) {
                             this.toolAlertSent.add(tool.slot);
-                            const msg = `âš ï¸ **Slot ${this.slot}:** **${tool.name}** dayanÄ±klÄ±lÄ±ÄŸÄ± Ã§ok dÃ¼ÅŸÃ¼k! (%${percent})`;
+                            const msg = `⚠️ **Slot ${this.slot}:** **${tool.name}** dayanıklılığı çok düşük! (%${percent})`;
                             if (this.onInventoryAlert) this.onInventoryAlert(msg);
                         }
                     }
@@ -1093,7 +1056,6 @@ export class MinecraftBot {
             username: this.accountConfig.username,
             status: this.status,
             isPaused: this.isPaused,
-            protectionEnabled: this.protectionEnabled,
             reconnectAttempts: this.reconnectAttempts,
             health: this.bot?.health,
             food: this.bot?.food,
@@ -1101,4 +1063,3 @@ export class MinecraftBot {
         };
     }
 }
-
