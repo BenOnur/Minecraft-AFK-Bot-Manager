@@ -115,7 +115,7 @@ Ornek:
     "server": {
       "host": "play.sunucuadresin.com",
       "port": 25565,
-      "version": "1.20.1"
+      "version": "1.21.11"
     },
     "accounts": []
   },
