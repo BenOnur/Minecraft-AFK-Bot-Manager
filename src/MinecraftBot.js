@@ -39,6 +39,47 @@ const FOOD_ITEMS = new Set([
     'pumpkin_pie', 'honey_bottle'
 ]);
 
+function extractReasonText(value) {
+    if (!value) return '';
+    if (typeof value === 'string') return value;
+
+    if (Array.isArray(value)) {
+        return value.map(extractReasonText).filter(Boolean).join(' ').trim();
+    }
+
+    if (typeof value === 'object') {
+        const parts = [];
+
+        if (typeof value.text === 'string') {
+            parts.push(value.text);
+        }
+        if (typeof value.translate === 'string') {
+            parts.push(value.translate);
+        }
+        if (value.with) {
+            parts.push(extractReasonText(value.with));
+        }
+        if (value.extra) {
+            parts.push(extractReasonText(value.extra));
+        }
+
+        return parts.filter(Boolean).join(' ').trim();
+    }
+
+    return String(value);
+}
+
+function formatKickReason(reason) {
+    const text = extractReasonText(reason);
+    if (text) return text;
+
+    try {
+        return JSON.stringify(reason);
+    } catch (error) {
+        return String(reason);
+    }
+}
+
 export class MinecraftBot {
     constructor(config, accountConfig) {
         this.config = config;
@@ -51,6 +92,9 @@ export class MinecraftBot {
         this.isManuallyStopped = false;
         this.reconnectAttempts = 0;
         this.alreadyOnlineRetries = 0;
+        this.sameKickStreak = 0;
+        this.lastKickSignature = '';
+        this.lastKickAt = 0;
         this.antiAfkInterval = null;
         this.proximityInterval = null;
         this.autoEatTimeout = null;
@@ -219,13 +263,39 @@ export class MinecraftBot {
 
         this.bot.on('kicked', (reason) => {
             this.isConnecting = false;
-            logger.warn(`Slot ${this.slot}: Kicked from reason: ${reason}`);
+            const reasonText = formatKickReason(reason);
+            logger.warn(`Slot ${this.slot}: Kicked from reason: ${reasonText}`);
             this.status = 'kicked';
 
-            const reasonStrRaw = typeof reason === 'string' ? reason : JSON.stringify(reason);
-            const reasonStr = String(reasonStrRaw).toLowerCase();
+            const reasonStr = String(reasonText || '').toLowerCase();
             const maxAlreadyOnlineRetries = this.config.settings.maxAlreadyOnlineRetries ?? 3;
             const alreadyOnlineReconnectDelay = this.config.settings.alreadyOnlineReconnectDelay ?? 120000;
+            const maxSameKickRetries = this.config.settings.maxSameKickRetries ?? 5;
+            const sameKickWindowMs = this.config.settings.sameKickWindowMs ?? 300000;
+            const now = Date.now();
+
+            if (
+                this.lastKickSignature === reasonStr &&
+                reasonStr &&
+                (now - this.lastKickAt) <= sameKickWindowMs
+            ) {
+                this.sameKickStreak++;
+            } else {
+                this.sameKickStreak = 1;
+            }
+
+            this.lastKickSignature = reasonStr;
+            this.lastKickAt = now;
+
+            if (this.sameKickStreak > 1) {
+                logger.warn(`Slot ${this.slot}: Same kick reason repeated (${this.sameKickStreak}/${maxSameKickRetries})`);
+            }
+
+            if (this.sameKickStreak >= maxSameKickRetries) {
+                logger.error(`Slot ${this.slot}: Kick loop protection triggered after ${this.sameKickStreak} repeated kicks. Auto-reconnect stopped for this slot.`);
+                this.isManuallyStopped = true;
+                return;
+            }
 
             if (reasonStr.includes('already online') || reasonStr.includes('already connected')) {
                 this.alreadyOnlineRetries++;
