@@ -53,6 +53,9 @@ function extractReasonText(value) {
         if (typeof value.text === 'string') {
             parts.push(value.text);
         }
+        if (typeof value.value === 'string') {
+            parts.push(value.value);
+        }
         if (typeof value.translate === 'string') {
             parts.push(value.translate);
         }
@@ -95,6 +98,7 @@ export class MinecraftBot {
         this.sameKickStreak = 0;
         this.lastKickSignature = '';
         this.lastKickAt = 0;
+        this.reconnectScheduleId = 0;
         this.antiAfkInterval = null;
         this.proximityInterval = null;
         this.autoEatTimeout = null;
@@ -144,6 +148,13 @@ export class MinecraftBot {
             return false;
         }
 
+        // Cancel pending reconnect timers before any fresh start.
+        if (this.reconnectTimeout) {
+            clearTimeout(this.reconnectTimeout);
+            this.reconnectTimeout = null;
+        }
+        this.reconnectScheduleId++;
+
         this.isConnecting = true;
         this.isManuallyStopped = false;
         this.status = 'connecting';
@@ -191,6 +202,9 @@ export class MinecraftBot {
             }
             this.reconnectAttempts = 0;
             this.alreadyOnlineRetries = 0;
+            this.sameKickStreak = 0;
+            this.lastKickSignature = '';
+            this.lastKickAt = 0;
             this.isInLobby = false; // Reset lobby state on login to prevent stale state
 
             // Sneak to hide name tag
@@ -254,7 +268,13 @@ export class MinecraftBot {
                 this.stats.totalUptime += Date.now() - this.stats.connectedAt;
                 this.stats.connectedAt = null;
             }
+            const statusBeforeCleanup = this.status;
             this.cleanup();
+
+            // Keep terminal state visible when reconnect loop is intentionally stopped.
+            if ((statusBeforeCleanup === 'kicked' || statusBeforeCleanup === 'error') && this.isManuallyStopped) {
+                this.status = statusBeforeCleanup;
+            }
 
             if (this.config.settings.autoReconnect && !this.isPaused) {
                 this.handleReconnect();
@@ -922,10 +942,22 @@ export class MinecraftBot {
             return;
         }
 
+        if (this.isConnecting || this.bot) {
+            logger.info(`Slot ${this.slot}: Reconnect skipped - bot is already connecting/online`);
+            return;
+        }
+
         let delay = this.tempReconnectDelay || this.config.settings.reconnectDelay || 5000;
         this.tempReconnectDelay = null;
         const maxAttempts = this.config.settings.maxReconnectAttempts ?? 10;
         const permanentRetry = this.config.settings.permanentRetryAfterMaxReconnect ?? false;
+
+        // Prevent duplicate queued reconnect timers for the same slot.
+        if (this.reconnectTimeout) {
+            clearTimeout(this.reconnectTimeout);
+            this.reconnectTimeout = null;
+        }
+        const scheduledId = ++this.reconnectScheduleId;
 
         if (this.reconnectAttempts >= maxAttempts) {
             if (permanentRetry) {
@@ -942,7 +974,13 @@ export class MinecraftBot {
         }
 
         this.reconnectTimeout = setTimeout(() => {
-            if (!this.isManuallyStopped) {
+            this.reconnectTimeout = null;
+            if (
+                scheduledId === this.reconnectScheduleId &&
+                !this.isManuallyStopped &&
+                !this.isConnecting &&
+                !this.bot
+            ) {
                 this.start();
             }
         }, delay);
@@ -950,6 +988,7 @@ export class MinecraftBot {
 
     async stop() {
         this.isManuallyStopped = true;
+        this.reconnectScheduleId++;
 
         if (this.reconnectTimeout) {
             clearTimeout(this.reconnectTimeout);
