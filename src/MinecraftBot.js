@@ -13,6 +13,10 @@ function formatDuration(ms) {
     return `${seconds}sn`;
 }
 
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 function getMaxDurability(toolName) {
     const durabilities = {
         'wooden_pickaxe': 59, 'stone_pickaxe': 131, 'iron_pickaxe': 250,
@@ -662,6 +666,60 @@ export class MinecraftBot {
         return false;
     }
 
+    async breakBlockWithVerification(pos, blockName, options = {}) {
+        const breakDelay = Math.max(0, options.breakDelay ?? 120);
+        const verifyDelay = Math.max(0, options.verifyDelay ?? 150);
+        const breakRetryCount = Math.max(0, options.breakRetryCount ?? 2);
+        const breakRetryDelay = Math.max(0, options.breakRetryDelay ?? 250);
+
+        for (let attempt = 0; attempt <= breakRetryCount; attempt++) {
+            if (!this.bot || this.status !== 'online') {
+                return { broken: false, reason: 'bot_not_ready' };
+            }
+
+            const block = this.bot.blockAt(pos);
+            if (!block || block.name !== blockName) {
+                return { broken: false, reason: 'already_gone' };
+            }
+
+            if (typeof this.bot.canDigBlock === 'function' && !this.bot.canDigBlock(block)) {
+                return { broken: false, reason: 'cannot_dig' };
+            }
+
+            try {
+                // Use center point + forced look for faster and more reliable dig start.
+                await this.bot.lookAt(block.position.offset(0.5, 0.5, 0.5), true);
+                await this.bot.dig(block, true);
+            } catch (error) {
+                if (attempt >= breakRetryCount) {
+                    return { broken: false, reason: 'dig_error', error };
+                }
+            }
+
+            if (breakDelay > 0) {
+                await sleep(breakDelay);
+            }
+
+            if (verifyDelay > 0) {
+                await sleep(verifyDelay);
+            }
+
+            const verifyBlock = this.bot?.blockAt(pos);
+            if (!verifyBlock || verifyBlock.name !== blockName) {
+                return { broken: true };
+            }
+
+            if (attempt < breakRetryCount) {
+                logger.warn(`Slot ${this.slot}: Ghost-block suspicion at ${pos}. Retrying (${attempt + 1}/${breakRetryCount})`);
+                if (breakRetryDelay > 0) {
+                    await sleep(breakRetryDelay);
+                }
+            }
+        }
+
+        return { broken: false, reason: 'ghost_block_persisted' };
+    }
+
     async executeProtection() {
         if (!this.bot || this.status !== 'online') return;
         if (this._protectionRunning) return; // Prevent multiple concurrent runs
@@ -672,8 +730,20 @@ export class MinecraftBot {
             return;
         }
 
-        // 2-second safety delay to allow for "Server Updating" messages or position updates to arrive
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        const protectionConfig = this.config.settings.protection || {};
+        const startDelay = Math.max(0, protectionConfig.startDelay ?? 1000);
+        const blockName = protectionConfig.blockType || 'spawner';
+        const radius = protectionConfig.radius || 64;
+        const breakDelay = Math.max(0, protectionConfig.breakDelay ?? 120);
+        const verifyDelay = Math.max(0, protectionConfig.verifyDelay ?? 150);
+        const breakRetryCount = Math.max(0, protectionConfig.breakRetryCount ?? 2);
+        const breakRetryDelay = Math.max(0, protectionConfig.breakRetryDelay ?? 250);
+        const maxBlocksPerScan = Math.max(1, protectionConfig.maxBlocksPerScan ?? 256);
+
+        // Small safety delay to allow maintenance/lobby messages to arrive.
+        if (startDelay > 0) {
+            await sleep(startDelay);
+        }
 
         // Re-check lobby status after delay
         if (this.isInLobby) {
@@ -684,10 +754,6 @@ export class MinecraftBot {
         this._protectionRunning = true;
 
         logger.warn(`Slot ${this.slot}: 🛡️ INITIATING SPAWNER PROTECTION PROTOCOL 🛡️`);
-
-        const blockName = this.config.settings.protection.blockType || 'spawner';
-        const radius = this.config.settings.protection.radius || 64;
-        const breakDelay = this.config.settings.protection.breakDelay || 300;
 
         // Equip pickaxe
         const pickaxe = this.bot.inventory.items().find(item => item.name.includes('pickaxe'));
@@ -725,8 +791,13 @@ export class MinecraftBot {
             const blocks = this.bot.findBlocks({
                 matching: (block) => block.name === blockName,
                 maxDistance: radius,
-                count: 100
+                count: maxBlocksPerScan
             });
+
+            if (this.bot?.entity?.position) {
+                const currentPos = this.bot.entity.position;
+                blocks.sort((a, b) => currentPos.distanceSquared(a) - currentPos.distanceSquared(b));
+            }
 
             if (blocks.length === 0) {
                 if (this.isInLobby) {
@@ -762,24 +833,44 @@ export class MinecraftBot {
                 const block = this.bot.blockAt(pos);
                 if (!block || block.name !== blockName) continue;
 
-                try {
-                    await this.bot.lookAt(pos);
-                    if (!this.bot) { this._protectionRunning = false; return; }
+                const breakResult = await this.breakBlockWithVerification(pos, blockName, {
+                    breakDelay,
+                    verifyDelay,
+                    breakRetryCount,
+                    breakRetryDelay
+                });
 
-                    logger.info(`Slot ${this.slot}: Breaking ${block.name} at ${pos}`);
-                    await this.bot.dig(block);
+                if (breakResult.broken) {
                     totalBroken++;
                     this.stats.spawnersBroken++;
-                    logger.info(`Slot ${this.slot}: Broken ${block.name} (${totalBroken} total)`);
+                    if (totalBroken === 1 || totalBroken % 10 === 0) {
+                        logger.info(`Slot ${this.slot}: Broken ${totalBroken} ${blockName}(s) so far`);
+                    }
+                    continue;
+                }
 
-                    await new Promise(resolve => setTimeout(resolve, breakDelay));
-                } catch (err) {
-                    logger.error(`Slot ${this.slot}: Failed to break block at ${pos}: ${err.message}`);
+                if (breakResult.reason === 'already_gone') {
+                    continue;
+                }
+
+                if (breakResult.reason === 'cannot_dig') {
+                    logger.warn(`Slot ${this.slot}: Cannot dig ${blockName} at ${pos}. Skipping.`);
+                    continue;
+                }
+
+                if (breakResult.reason === 'ghost_block_persisted') {
+                    logger.warn(`Slot ${this.slot}: ${blockName} at ${pos} still exists after retries (possible ghost block/server lag).`);
+                    continue;
+                }
+
+                if (breakResult.reason === 'dig_error') {
+                    logger.error(`Slot ${this.slot}: Failed to break block at ${pos}: ${breakResult.error?.message || 'unknown dig error'}`);
+                    continue;
                 }
             }
 
             // Small delay before re-scanning
-            await new Promise(resolve => setTimeout(resolve, 200));
+            await sleep(100);
         }
 
         if (this.bot) {

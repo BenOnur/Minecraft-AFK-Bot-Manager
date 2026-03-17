@@ -92,7 +92,12 @@ function normalizeConfig(config) {
         emergencyDistance: 10,
         blockType: 'spawner',
         radius: 64,
-        breakDelay: 300,
+        startDelay: 1000,
+        breakDelay: 120,
+        verifyDelay: 150,
+        breakRetryCount: 2,
+        breakRetryDelay: 250,
+        maxBlocksPerScan: 256,
         ...(normalized.settings.protection || {})
     };
 
