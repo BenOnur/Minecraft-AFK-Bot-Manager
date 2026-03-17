@@ -316,10 +316,11 @@ export class BotManager {
             .sort((a, b) => a.slot - b.slot)
             .map(acc => {
                 const bot = this.bots.get(acc.slot);
+                const runtimeStatus = bot ? bot.getStatus().status : 'stopped';
                 return {
                     slot: acc.slot,
                     username: acc.username,
-                    status: bot ? bot.status : 'stopped'
+                    status: runtimeStatus
                 };
             });
     }

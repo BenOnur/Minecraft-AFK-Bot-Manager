@@ -882,6 +882,16 @@ export class MinecraftBot {
         }, 60000); // Check every 60 seconds
     }
 
+    resolveDisplayStatus() {
+        // In some short race windows, internal status may still be "offline/connecting"
+        // even though protocol state is already in play. Prefer runtime client state.
+        const clientState = this.bot?._client?.state;
+        if ((this.status === 'offline' || this.status === 'connecting') && clientState === 'play') {
+            return 'online';
+        }
+        return this.status;
+    }
+
     getStats() {
         let currentUptime = this.stats.totalUptime;
         if (this.stats.connectedAt) {
@@ -893,7 +903,7 @@ export class MinecraftBot {
         return {
             slot: this.slot,
             username: this.accountConfig.username,
-            status: this.status,
+            status: this.resolveDisplayStatus(),
             uptime: currentUptime,
             uptimeFormatted: formatDuration(currentUptime),
             sessionTime: totalSessionTime,
@@ -1145,11 +1155,13 @@ export class MinecraftBot {
     }
 
     getStatus() {
+        const resolvedStatus = this.resolveDisplayStatus();
         return {
             slot: this.slot,
             username: this.accountConfig.username,
-            status: this.status,
+            status: resolvedStatus,
             isPaused: this.isPaused,
+            protectionEnabled: this.protectionEnabled,
             reconnectAttempts: this.reconnectAttempts,
             health: this.bot?.health,
             food: this.bot?.food,
