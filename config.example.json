@@ -75,6 +75,14 @@
             "inventoryConfirmDelay": 80,
             "stackedFastMode": true,
             "stackedFastGraceMs": 150,
+            "naturalLookEnabled": true,
+            "naturalLookSteps": 4,
+            "naturalLookStepDelay": 20,
+            "naturalLookJitter": 0.01,
+            "preDigPause": 35,
+            "blockGoneStableMs": 500,
+            "blockGoneRecheckInterval": 100,
+            "maxHitsPerBlock": 256,
             "goneConfirmChecks": 3,
             "goneConfirmInterval": 50
         }

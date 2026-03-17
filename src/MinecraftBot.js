@@ -705,6 +705,39 @@ export class MinecraftBot {
             .reduce((sum, item) => sum + (item.count || 0), 0);
     }
 
+    async naturalLookAtBlock(pos, options = {}) {
+        if (!this.bot) return;
+
+        const naturalLookEnabled = options.naturalLookEnabled !== false;
+        const preDigPause = Math.max(0, options.preDigPause ?? 35);
+        const target = pos.offset(0.5, 0.5, 0.5);
+
+        if (!naturalLookEnabled) {
+            await this.bot.lookAt(target, true);
+            if (preDigPause > 0) await sleep(preDigPause);
+            return;
+        }
+
+        const steps = Math.max(1, Math.min(8, options.naturalLookSteps ?? 4));
+        const stepDelay = Math.max(0, options.naturalLookStepDelay ?? 20);
+        const jitter = Math.max(0, options.naturalLookJitter ?? 0.01);
+
+        for (let i = 0; i < steps; i++) {
+            const ratio = (steps - i) / steps;
+            const spread = jitter * (1 + (ratio * 2));
+            const stepTarget = target.offset(
+                (Math.random() - 0.5) * spread,
+                (Math.random() - 0.5) * spread,
+                (Math.random() - 0.5) * spread
+            );
+            await this.bot.lookAt(stepTarget, false);
+            if (stepDelay > 0) await sleep(stepDelay);
+        }
+
+        await this.bot.lookAt(target, false);
+        if (preDigPause > 0) await sleep(preDigPause);
+    }
+
     async breakBlockWithVerification(pos, blockName, options = {}) {
         const breakDelay = Math.max(0, options.breakDelay ?? 0);
         const verifyDelay = Math.max(0, options.verifyDelay ?? 80);
@@ -721,6 +754,13 @@ export class MinecraftBot {
         const goneConfirmInterval = Math.max(0, options.goneConfirmInterval ?? 50);
         const stackedFastMode = options.stackedFastMode !== false;
         const stackedFastGraceMs = Math.max(0, options.stackedFastGraceMs ?? 150);
+        const naturalLookEnabled = options.naturalLookEnabled !== false;
+        const naturalLookSteps = Math.max(1, options.naturalLookSteps ?? 4);
+        const naturalLookStepDelay = Math.max(0, options.naturalLookStepDelay ?? 20);
+        const naturalLookJitter = Math.max(0, options.naturalLookJitter ?? 0.01);
+        const preDigPause = Math.max(0, options.preDigPause ?? 35);
+        const blockGoneStableMs = Math.max(0, options.blockGoneStableMs ?? 500);
+        const blockGoneRecheckInterval = Math.max(20, options.blockGoneRecheckInterval ?? 100);
 
         for (let attempt = 0; attempt <= breakRetryCount; attempt++) {
             if (!this.bot || this.status !== 'online') {
@@ -739,8 +779,14 @@ export class MinecraftBot {
             const spawnerBefore = this.getSpawnerItemCount();
 
             try {
-                // Force look inside dig to avoid extra per-block look wait.
-                await this.bot.dig(block, true);
+                await this.naturalLookAtBlock(pos, {
+                    naturalLookEnabled,
+                    naturalLookSteps,
+                    naturalLookStepDelay,
+                    naturalLookJitter,
+                    preDigPause
+                });
+                await this.bot.dig(block, false);
             } catch (error) {
                 if (attempt >= breakRetryCount) {
                     return { broken: false, reason: 'dig_error', error };
@@ -791,6 +837,15 @@ export class MinecraftBot {
             }
 
             if (!stillExists) {
+                // Keep checking for a short period; some anti-cheat/plugins can briefly fake client break.
+                const stableStart = Date.now();
+                while ((Date.now() - stableStart) <= blockGoneStableMs) {
+                    const lateCheck = this.bot?.blockAt(pos);
+                    if (lateCheck && lateCheck.name === blockName) {
+                        return { broken: false, reason: 'block_reappeared' };
+                    }
+                    await sleep(blockGoneRecheckInterval);
+                }
                 return { broken: true, byInventory: false, gained: 0 };
             }
 
@@ -836,6 +891,14 @@ export class MinecraftBot {
         const goneConfirmInterval = Math.max(0, protectionConfig.goneConfirmInterval ?? 50);
         const stackedFastMode = protectionConfig.stackedFastMode !== false;
         const stackedFastGraceMs = Math.max(0, protectionConfig.stackedFastGraceMs ?? 150);
+        const naturalLookEnabled = protectionConfig.naturalLookEnabled !== false;
+        const naturalLookSteps = Math.max(1, protectionConfig.naturalLookSteps ?? 4);
+        const naturalLookStepDelay = Math.max(0, protectionConfig.naturalLookStepDelay ?? 20);
+        const naturalLookJitter = Math.max(0, protectionConfig.naturalLookJitter ?? 0.01);
+        const preDigPause = Math.max(0, protectionConfig.preDigPause ?? 35);
+        const blockGoneStableMs = Math.max(0, protectionConfig.blockGoneStableMs ?? 500);
+        const blockGoneRecheckInterval = Math.max(20, protectionConfig.blockGoneRecheckInterval ?? 100);
+        const maxHitsPerBlock = Math.max(1, protectionConfig.maxHitsPerBlock ?? 256);
 
         // Small safety delay to allow maintenance/lobby messages to arrive.
         if (startDelay > 0) {
@@ -911,74 +974,105 @@ export class MinecraftBot {
             for (const pos of blocks) {
                 if (!this.bot) { this._protectionRunning = false; return; }
 
-                // Emergency: check if any enemy is within 10 blocks
-                if (this.isEnemyNearby()) {
-                    logger.error(`Slot ${this.slot}: 🚨 Enemy too close while breaking! EMERGENCY DISCONNECT! 🚨`);
-                    this._protectionRunning = false;
-                    this.stop();
-                    return;
-                }
-
-                // Re-check inventory before each break
-                if (this.bot.inventory.emptySlotCount() <= 2) {
-                    logger.warn(`Slot ${this.slot}: 📦 Inventory nearly FULL mid-break! Stopping protection and disconnecting.`);
-                    break;
-                }
-
-                const blockDistance = this.bot.entity.position.distanceTo(pos.offset(0.5, 0.5, 0.5));
-                if (blockDistance > maxBreakReach) {
-                    continue;
-                }
-                reachableInScan++;
-
-                const block = this.bot.blockAt(pos);
-                if (!block || block.name !== blockName) continue;
-
-                const breakResult = await this.breakBlockWithVerification(pos, blockName, {
-                    breakDelay,
-                    verifyDelay,
-                    breakRetryCount,
-                    breakRetryDelay,
-                    inventoryConfirmTimeout,
-                    inventoryConfirmPollInterval,
-                    goneConfirmChecks,
-                    goneConfirmInterval,
-                    stackedFastMode,
-                    stackedFastGraceMs
-                });
-
-                if (breakResult.broken) {
-                    totalBroken++;
-                    brokeInScan++;
-                    this.stats.spawnersBroken++;
-                    if (totalBroken === 1 || totalBroken % 10 === 0) {
-                        logger.info(`Slot ${this.slot}: Broken ${totalBroken} ${blockName}(s) so far`);
+                let hitsOnCurrentBlock = 0;
+                while (this.bot && this.status === 'online') {
+                    // Emergency: check if any enemy is within 10 blocks
+                    if (this.isEnemyNearby()) {
+                        logger.error(`Slot ${this.slot}: Enemy too close while breaking! Emergency disconnect.`);
+                        this._protectionRunning = false;
+                        this.stop();
+                        return;
                     }
-                    continue;
-                }
 
-                if (breakResult.reason === 'already_gone') {
-                    continue;
-                }
+                    // Re-check inventory before each break
+                    if (this.bot.inventory.emptySlotCount() <= 2) {
+                        logger.warn(`Slot ${this.slot}: Inventory nearly full mid-break. Stopping protection and disconnecting.`);
+                        break;
+                    }
 
-                if (breakResult.reason === 'stack_still_exists') {
-                    stackPendingInScan++;
-                    continue;
-                }
+                    const blockDistance = this.bot.entity.position.distanceTo(pos.offset(0.5, 0.5, 0.5));
+                    if (blockDistance > maxBreakReach) {
+                        break;
+                    }
+                    reachableInScan++;
 
-                if (breakResult.reason === 'cannot_dig') {
-                    logger.warn(`Slot ${this.slot}: Cannot dig ${blockName} at ${pos}. Skipping.`);
-                    continue;
-                }
+                    const block = this.bot.blockAt(pos);
+                    if (!block || block.name !== blockName) break;
 
-                if (breakResult.reason === 'ghost_block_persisted') {
-                    logger.warn(`Slot ${this.slot}: ${blockName} at ${pos} still exists after retries (possible ghost block/server lag).`);
-                    continue;
-                }
+                    const breakResult = await this.breakBlockWithVerification(pos, blockName, {
+                        breakDelay,
+                        verifyDelay,
+                        breakRetryCount,
+                        breakRetryDelay,
+                        inventoryConfirmTimeout,
+                        inventoryConfirmPollInterval,
+                        goneConfirmChecks,
+                        goneConfirmInterval,
+                        stackedFastMode,
+                        stackedFastGraceMs,
+                        naturalLookEnabled,
+                        naturalLookSteps,
+                        naturalLookStepDelay,
+                        naturalLookJitter,
+                        preDigPause,
+                        blockGoneStableMs,
+                        blockGoneRecheckInterval
+                    });
 
-                if (breakResult.reason === 'dig_error') {
-                    logger.error(`Slot ${this.slot}: Failed to break block at ${pos}: ${breakResult.error?.message || 'unknown dig error'}`);
-                    continue;
+                    if (breakResult.broken) {
+                        const gained = Math.max(1, breakResult.gained || 0);
+                        totalBroken += gained;
+                        brokeInScan += gained;
+                        this.stats.spawnersBroken += gained;
+                        if (totalBroken === 1 || totalBroken % 10 === 0 || gained > 1) {
+                            logger.info(`Slot ${this.slot}: Broken ${totalBroken} ${blockName}(s) so far`);
+                        }
+
+                        // If block still exists, this is likely a stacked spawner, keep hitting same block.
+                        const stillSameBlock = this.bot?.blockAt(pos)?.name === blockName;
+                        if (stillSameBlock) {
+                            hitsOnCurrentBlock++;
+                            if (hitsOnCurrentBlock >= maxHitsPerBlock) {
+                                logger.warn(`Slot ${this.slot}: Hit limit reached at ${pos}. Moving to next block.`);
+                                break;
+                            }
+                            continue;
+                        }
+                        break;
+                    }
+
+                    if (breakResult.reason === 'already_gone') {
+                        break;
+                    }
+
+                    if (breakResult.reason === 'stack_still_exists' || breakResult.reason === 'block_reappeared') {
+                        stackPendingInScan++;
+                        hitsOnCurrentBlock++;
+                        if (hitsOnCurrentBlock >= maxHitsPerBlock) {
+                            logger.warn(`Slot ${this.slot}: Stack pending too long at ${pos}. Moving to next block.`);
+                            break;
+                        }
+                        continue;
+                    }
+
+                    if (breakResult.reason === 'cannot_dig') {
+                        logger.warn(`Slot ${this.slot}: Cannot dig ${blockName} at ${pos}. Skipping.`);
+                        break;
+                    }
+
+                    if (breakResult.reason === 'ghost_block_persisted') {
+                        logger.warn(`Slot ${this.slot}: ${blockName} at ${pos} still exists after retries.`);
+                        hitsOnCurrentBlock++;
+                        if (hitsOnCurrentBlock >= maxHitsPerBlock) break;
+                        continue;
+                    }
+
+                    if (breakResult.reason === 'dig_error') {
+                        logger.error(`Slot ${this.slot}: Failed to break block at ${pos}: ${breakResult.error?.message || 'unknown dig error'}`);
+                        break;
+                    }
+
+                    break;
                 }
             }
 
