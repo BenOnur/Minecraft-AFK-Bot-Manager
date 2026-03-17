@@ -31,6 +31,27 @@ function getMaxDurability(toolName) {
     return durabilities[toolName] || null;
 }
 
+const PICKAXE_PRIORITY = {
+    netherite_pickaxe: 600,
+    diamond_pickaxe: 500,
+    iron_pickaxe: 400,
+    stone_pickaxe: 300,
+    golden_pickaxe: 200,
+    wooden_pickaxe: 100
+};
+
+function getPickaxeScore(item) {
+    if (!item || !item.name || !item.name.includes('pickaxe')) return -1;
+
+    const base = PICKAXE_PRIORITY[item.name] ?? 0;
+    const durability = getMaxDurability(item.name);
+    const damage = item?.nbt?.value?.Damage?.value ?? item?.durabilityUsed ?? 0;
+    const remaining = durability ? Math.max(0, durability - damage) : 0;
+
+    // Prioritize stronger/faster tier first, then durability.
+    return (base * 10000) + remaining;
+}
+
 const FOOD_ITEMS = new Set([
     'bread', 'cooked_beef', 'cooked_porkchop', 'cooked_chicken',
     'cooked_mutton', 'cooked_rabbit', 'cooked_cod', 'cooked_salmon',
@@ -511,19 +532,30 @@ export class MinecraftBot {
         this.antiAfkInterval = setTimeout(runTick, 5000 + (this.slot * 2000));
     }
 
-    async equipPickaxe() {
-        if (!this.bot) return;
-        const pickaxe = this.bot.inventory.items().find(item => item.name.includes('pickaxe'));
-        if (pickaxe) {
-            const heldItem = this.bot.inventory.slots[this.bot.getEquipmentDestSlot('hand')];
-            if (heldItem && heldItem.name.includes('pickaxe')) return; // Already holding
+    getBestPickaxe() {
+        if (!this.bot) return null;
 
-            try {
-                await this.bot.equip(pickaxe, 'hand');
-                logger.info(`Slot ${this.slot}: Equipped ${pickaxe.name}`);
-            } catch (error) {
-                logger.error(`Slot ${this.slot}: Failed to equip pickaxe: ${error.message}`);
-            }
+        const pickaxes = this.bot.inventory.items().filter(item => item.name.includes('pickaxe'));
+        if (pickaxes.length === 0) return null;
+
+        pickaxes.sort((a, b) => getPickaxeScore(b) - getPickaxeScore(a));
+        return pickaxes[0];
+    }
+
+    async equipPickaxe(force = false) {
+        if (!this.bot) return;
+
+        const bestPickaxe = this.getBestPickaxe();
+        if (!bestPickaxe) return;
+
+        const heldItem = this.bot.inventory.slots[this.bot.getEquipmentDestSlot('hand')];
+        if (!force && heldItem && heldItem.name === bestPickaxe.name) return;
+
+        try {
+            await this.bot.equip(bestPickaxe, 'hand');
+            logger.info(`Slot ${this.slot}: Equipped ${bestPickaxe.name}`);
+        } catch (error) {
+            logger.error(`Slot ${this.slot}: Failed to equip pickaxe: ${error.message}`);
         }
     }
 
@@ -667,10 +699,10 @@ export class MinecraftBot {
     }
 
     async breakBlockWithVerification(pos, blockName, options = {}) {
-        const breakDelay = Math.max(0, options.breakDelay ?? 120);
-        const verifyDelay = Math.max(0, options.verifyDelay ?? 150);
-        const breakRetryCount = Math.max(0, options.breakRetryCount ?? 2);
-        const breakRetryDelay = Math.max(0, options.breakRetryDelay ?? 250);
+        const breakDelay = Math.max(0, options.breakDelay ?? 0);
+        const verifyDelay = Math.max(0, options.verifyDelay ?? 0);
+        const breakRetryCount = Math.max(0, options.breakRetryCount ?? 0);
+        const breakRetryDelay = Math.max(0, options.breakRetryDelay ?? 100);
 
         for (let attempt = 0; attempt <= breakRetryCount; attempt++) {
             if (!this.bot || this.status !== 'online') {
@@ -687,8 +719,7 @@ export class MinecraftBot {
             }
 
             try {
-                // Use center point + forced look for faster and more reliable dig start.
-                await this.bot.lookAt(block.position.offset(0.5, 0.5, 0.5), true);
+                // Force look inside dig to avoid extra per-block look wait.
                 await this.bot.dig(block, true);
             } catch (error) {
                 if (attempt >= breakRetryCount) {
@@ -731,14 +762,15 @@ export class MinecraftBot {
         }
 
         const protectionConfig = this.config.settings.protection || {};
-        const startDelay = Math.max(0, protectionConfig.startDelay ?? 1000);
+        const startDelay = Math.max(0, protectionConfig.startDelay ?? 250);
         const blockName = protectionConfig.blockType || 'spawner';
         const radius = protectionConfig.radius || 64;
-        const breakDelay = Math.max(0, protectionConfig.breakDelay ?? 120);
-        const verifyDelay = Math.max(0, protectionConfig.verifyDelay ?? 150);
-        const breakRetryCount = Math.max(0, protectionConfig.breakRetryCount ?? 2);
-        const breakRetryDelay = Math.max(0, protectionConfig.breakRetryDelay ?? 250);
+        const breakDelay = Math.max(0, protectionConfig.breakDelay ?? 0);
+        const verifyDelay = Math.max(0, protectionConfig.verifyDelay ?? 0);
+        const breakRetryCount = Math.max(0, protectionConfig.breakRetryCount ?? 0);
+        const breakRetryDelay = Math.max(0, protectionConfig.breakRetryDelay ?? 100);
         const maxBlocksPerScan = Math.max(1, protectionConfig.maxBlocksPerScan ?? 256);
+        const maxBreakReach = Math.max(1, protectionConfig.maxBreakReach ?? 5.0);
 
         // Small safety delay to allow maintenance/lobby messages to arrive.
         if (startDelay > 0) {
@@ -755,15 +787,10 @@ export class MinecraftBot {
 
         logger.warn(`Slot ${this.slot}: 🛡️ INITIATING SPAWNER PROTECTION PROTOCOL 🛡️`);
 
-        // Equip pickaxe
-        const pickaxe = this.bot.inventory.items().find(item => item.name.includes('pickaxe'));
-        if (pickaxe) {
-            try {
-                await this.bot.equip(pickaxe, 'hand');
-                logger.info(`Slot ${this.slot}: Equipped ${pickaxe.name}`);
-            } catch (error) {
-                logger.error(`Slot ${this.slot}: Failed to equip pickaxe: ${error.message}`);
-            }
+        // Equip the best available pickaxe for faster breaking.
+        const bestPickaxe = this.getBestPickaxe();
+        if (bestPickaxe) {
+            await this.equipPickaxe(true);
         } else {
             logger.warn(`Slot ${this.slot}: No pickaxe found! Breaking with hand (slow).`);
         }
@@ -812,6 +839,8 @@ export class MinecraftBot {
             }
 
             logger.info(`Slot ${this.slot}: Found ${blocks.length} ${blockName}(s) remaining. Breaking...`);
+            let reachableInScan = 0;
+            let brokeInScan = 0;
 
             for (const pos of blocks) {
                 if (!this.bot) { this._protectionRunning = false; return; }
@@ -830,6 +859,12 @@ export class MinecraftBot {
                     break;
                 }
 
+                const blockDistance = this.bot.entity.position.distanceTo(pos.offset(0.5, 0.5, 0.5));
+                if (blockDistance > maxBreakReach) {
+                    continue;
+                }
+                reachableInScan++;
+
                 const block = this.bot.blockAt(pos);
                 if (!block || block.name !== blockName) continue;
 
@@ -842,6 +877,7 @@ export class MinecraftBot {
 
                 if (breakResult.broken) {
                     totalBroken++;
+                    brokeInScan++;
                     this.stats.spawnersBroken++;
                     if (totalBroken === 1 || totalBroken % 10 === 0) {
                         logger.info(`Slot ${this.slot}: Broken ${totalBroken} ${blockName}(s) so far`);
@@ -869,8 +905,17 @@ export class MinecraftBot {
                 }
             }
 
+            if (reachableInScan === 0 && blocks.length > 0) {
+                logger.warn(`Slot ${this.slot}: ${blockName}s found but none are within reach (${maxBreakReach}m). Stopping protection.`);
+                break;
+            }
+
+            if (brokeInScan === 0 && reachableInScan > 0) {
+                logger.warn(`Slot ${this.slot}: No ${blockName} broken in this scan despite reachable targets. Retrying quickly.`);
+            }
+
             // Small delay before re-scanning
-            await sleep(100);
+            await sleep(25);
         }
 
         if (this.bot) {
