@@ -710,7 +710,13 @@ export class MinecraftBot {
         const verifyDelay = Math.max(0, options.verifyDelay ?? 80);
         const breakRetryCount = Math.max(0, options.breakRetryCount ?? 1);
         const breakRetryDelay = Math.max(0, options.breakRetryDelay ?? 100);
-        const inventoryConfirmDelay = Math.max(0, options.inventoryConfirmDelay ?? 80);
+        const inventoryConfirmTimeout = Math.max(
+            0,
+            options.inventoryConfirmTimeout ??
+            options.inventoryConfirmDelay ??
+            80
+        );
+        const inventoryConfirmPollInterval = Math.max(20, options.inventoryConfirmPollInterval ?? 250);
         const goneConfirmChecks = Math.max(1, options.goneConfirmChecks ?? 3);
         const goneConfirmInterval = Math.max(0, options.goneConfirmInterval ?? 50);
 
@@ -743,13 +749,21 @@ export class MinecraftBot {
                 await sleep(breakDelay);
             }
 
-            // Stacked spawner servers may keep the same block but add items to inventory.
-            if (inventoryConfirmDelay > 0) {
-                await sleep(inventoryConfirmDelay);
-            }
-            const spawnerAfter = this.getSpawnerItemCount();
-            if (spawnerAfter > spawnerBefore) {
-                return { broken: true, byInventory: true, gained: spawnerAfter - spawnerBefore };
+            // Stacked spawner servers may keep the same block and add items later (e.g. 10s cooldown).
+            const confirmStart = Date.now();
+            while ((Date.now() - confirmStart) <= inventoryConfirmTimeout) {
+                const spawnerAfter = this.getSpawnerItemCount();
+                if (spawnerAfter > spawnerBefore) {
+                    return { broken: true, byInventory: true, gained: spawnerAfter - spawnerBefore };
+                }
+
+                // If block vanished during the wait, treat as broken and continue.
+                const midCheckBlock = this.bot?.blockAt(pos);
+                if (!midCheckBlock || midCheckBlock.name !== blockName) {
+                    return { broken: true, byInventory: false, gained: 0 };
+                }
+
+                await sleep(inventoryConfirmPollInterval);
             }
 
             if (verifyDelay > 0) {
@@ -804,7 +818,13 @@ export class MinecraftBot {
         const breakRetryDelay = Math.max(0, protectionConfig.breakRetryDelay ?? 100);
         const maxBlocksPerScan = Math.max(1, protectionConfig.maxBlocksPerScan ?? 256);
         const maxBreakReach = Math.max(1, protectionConfig.maxBreakReach ?? 5.0);
-        const inventoryConfirmDelay = Math.max(0, protectionConfig.inventoryConfirmDelay ?? 80);
+        const inventoryConfirmTimeout = Math.max(
+            0,
+            protectionConfig.inventoryConfirmTimeout ??
+            protectionConfig.inventoryConfirmDelay ??
+            80
+        );
+        const inventoryConfirmPollInterval = Math.max(20, protectionConfig.inventoryConfirmPollInterval ?? 250);
         const goneConfirmChecks = Math.max(1, protectionConfig.goneConfirmChecks ?? 3);
         const goneConfirmInterval = Math.max(0, protectionConfig.goneConfirmInterval ?? 50);
 
@@ -909,7 +929,8 @@ export class MinecraftBot {
                     verifyDelay,
                     breakRetryCount,
                     breakRetryDelay,
-                    inventoryConfirmDelay,
+                    inventoryConfirmTimeout,
+                    inventoryConfirmPollInterval,
                     goneConfirmChecks,
                     goneConfirmInterval
                 });

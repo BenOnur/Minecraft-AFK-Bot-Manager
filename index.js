@@ -99,6 +99,8 @@ function normalizeConfig(config) {
         breakRetryDelay: 100,
         maxBlocksPerScan: 256,
         maxBreakReach: 5.0,
+        inventoryConfirmTimeout: 11000,
+        inventoryConfirmPollInterval: 250,
         inventoryConfirmDelay: 80,
         goneConfirmChecks: 3,
         goneConfirmInterval: 50,
