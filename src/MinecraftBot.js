@@ -145,6 +145,7 @@ export class MinecraftBot {
         this.inventoryMonitorInterval = null;
         this.inventoryAlertSent = false;
         this.toolAlertSent = new Set();
+        this.lastProtectionTargetPos = null;
 
         // Stats tracking
         this.stats = {
@@ -738,6 +739,45 @@ export class MinecraftBot {
         if (preDigPause > 0) await sleep(preDigPause);
     }
 
+    orderBlocksSequentially(blocks, startPos = null) {
+        if (!Array.isArray(blocks) || blocks.length <= 1) {
+            return blocks || [];
+        }
+
+        const remaining = [...blocks];
+        const ordered = [];
+
+        let cursor = null;
+        if (startPos && typeof startPos.clone === 'function') {
+            cursor = startPos.clone();
+        } else if (this.bot?.entity?.position) {
+            cursor = this.bot.entity.position.clone();
+        }
+
+        if (!cursor) {
+            return remaining;
+        }
+
+        while (remaining.length > 0) {
+            let bestIdx = 0;
+            let bestDist = Infinity;
+
+            for (let i = 0; i < remaining.length; i++) {
+                const d = cursor.distanceSquared(remaining[i]);
+                if (d < bestDist) {
+                    bestDist = d;
+                    bestIdx = i;
+                }
+            }
+
+            const nextPos = remaining.splice(bestIdx, 1)[0];
+            ordered.push(nextPos);
+            cursor = nextPos;
+        }
+
+        return ordered;
+    }
+
     async breakBlockWithVerification(pos, blockName, options = {}) {
         const breakDelay = Math.max(0, options.breakDelay ?? 0);
         const verifyDelay = Math.max(0, options.verifyDelay ?? 80);
@@ -955,6 +995,7 @@ export class MinecraftBot {
             }
 
             if (blocks.length === 0) {
+                this.lastProtectionTargetPos = null;
                 if (this.isInLobby) {
                     logger.warn(`Slot ${this.slot}: In lobby and no target blocks found. Aborting protection without disconnect.`);
                     this._protectionRunning = false;
@@ -966,13 +1007,19 @@ export class MinecraftBot {
                 break;
             }
 
+            const orderedBlocks = this.orderBlocksSequentially(
+                blocks,
+                this.lastProtectionTargetPos || this.bot?.entity?.position || null
+            );
+
             logger.info(`Slot ${this.slot}: Found ${blocks.length} ${blockName}(s) remaining. Breaking...`);
             let reachableInScan = 0;
             let brokeInScan = 0;
             let stackPendingInScan = 0;
 
-            for (const pos of blocks) {
+            for (const pos of orderedBlocks) {
                 if (!this.bot) { this._protectionRunning = false; return; }
+                this.lastProtectionTargetPos = pos;
 
                 let hitsOnCurrentBlock = 0;
                 while (this.bot && this.status === 'online') {
@@ -1092,6 +1139,7 @@ export class MinecraftBot {
         if (this.bot) {
             this.bot.setControlState('sneak', false);
         }
+        this.lastProtectionTargetPos = null;
 
         // Only disconnect if we actually ran the logic and finished (not early returned)
         logger.info(`Slot ${this.slot}: Protection protocol complete. Disconnecting.`);
@@ -1502,6 +1550,7 @@ export class MinecraftBot {
         }
         this.stopLobbyRetry();
         this.isInLobby = false;
+        this.lastProtectionTargetPos = null;
 
         this.bot = null;
         this.status = 'offline';
