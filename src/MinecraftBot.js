@@ -719,6 +719,8 @@ export class MinecraftBot {
         const inventoryConfirmPollInterval = Math.max(20, options.inventoryConfirmPollInterval ?? 250);
         const goneConfirmChecks = Math.max(1, options.goneConfirmChecks ?? 3);
         const goneConfirmInterval = Math.max(0, options.goneConfirmInterval ?? 50);
+        const stackedFastMode = options.stackedFastMode !== false;
+        const stackedFastGraceMs = Math.max(0, options.stackedFastGraceMs ?? 150);
 
         for (let attempt = 0; attempt <= breakRetryCount; attempt++) {
             if (!this.bot || this.status !== 'online') {
@@ -761,6 +763,11 @@ export class MinecraftBot {
                 const midCheckBlock = this.bot?.blockAt(pos);
                 if (!midCheckBlock || midCheckBlock.name !== blockName) {
                     return { broken: true, byInventory: false, gained: 0 };
+                }
+
+                // Fast stacked mode: if block still exists shortly after dig, keep hitting immediately.
+                if (stackedFastMode && (Date.now() - confirmStart) >= stackedFastGraceMs) {
+                    return { broken: false, reason: 'stack_still_exists' };
                 }
 
                 await sleep(inventoryConfirmPollInterval);
@@ -827,6 +834,8 @@ export class MinecraftBot {
         const inventoryConfirmPollInterval = Math.max(20, protectionConfig.inventoryConfirmPollInterval ?? 250);
         const goneConfirmChecks = Math.max(1, protectionConfig.goneConfirmChecks ?? 3);
         const goneConfirmInterval = Math.max(0, protectionConfig.goneConfirmInterval ?? 50);
+        const stackedFastMode = protectionConfig.stackedFastMode !== false;
+        const stackedFastGraceMs = Math.max(0, protectionConfig.stackedFastGraceMs ?? 150);
 
         // Small safety delay to allow maintenance/lobby messages to arrive.
         if (startDelay > 0) {
@@ -897,6 +906,7 @@ export class MinecraftBot {
             logger.info(`Slot ${this.slot}: Found ${blocks.length} ${blockName}(s) remaining. Breaking...`);
             let reachableInScan = 0;
             let brokeInScan = 0;
+            let stackPendingInScan = 0;
 
             for (const pos of blocks) {
                 if (!this.bot) { this._protectionRunning = false; return; }
@@ -932,7 +942,9 @@ export class MinecraftBot {
                     inventoryConfirmTimeout,
                     inventoryConfirmPollInterval,
                     goneConfirmChecks,
-                    goneConfirmInterval
+                    goneConfirmInterval,
+                    stackedFastMode,
+                    stackedFastGraceMs
                 });
 
                 if (breakResult.broken) {
@@ -946,6 +958,11 @@ export class MinecraftBot {
                 }
 
                 if (breakResult.reason === 'already_gone') {
+                    continue;
+                }
+
+                if (breakResult.reason === 'stack_still_exists') {
+                    stackPendingInScan++;
                     continue;
                 }
 
@@ -970,7 +987,7 @@ export class MinecraftBot {
                 break;
             }
 
-            if (brokeInScan === 0 && reachableInScan > 0) {
+            if (brokeInScan === 0 && stackPendingInScan === 0 && reachableInScan > 0) {
                 logger.warn(`Slot ${this.slot}: No ${blockName} broken in this scan despite reachable targets. Retrying quickly.`);
             }
 

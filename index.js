@@ -102,6 +102,8 @@ function normalizeConfig(config) {
         inventoryConfirmTimeout: 11000,
         inventoryConfirmPollInterval: 250,
         inventoryConfirmDelay: 80,
+        stackedFastMode: true,
+        stackedFastGraceMs: 150,
         goneConfirmChecks: 3,
         goneConfirmInterval: 50,
         ...(normalized.settings.protection || {})
