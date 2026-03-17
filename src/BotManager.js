@@ -109,7 +109,7 @@ export class BotManager {
             return false;
         }
 
-        return await bot.start();
+        return await bot.start('manual');
     }
 
     async stopBot(slot) {
@@ -157,7 +157,7 @@ export class BotManager {
         const promises = [];
 
         for (const bot of this.bots.values()) {
-            promises.push(bot.start());
+            promises.push(bot.start('startup'));
         }
 
         await Promise.all(promises);
@@ -245,7 +245,7 @@ export class BotManager {
             this.bots.set(newSlot, newBot);
 
             try {
-                await newBot.start();
+                await newBot.start('account-add-finalize');
             } catch (e) {
                 logger.error(`Failed to restart bot with new session: ${e.message}`);
                 this.sendPlatformMessage(platform, userId, `❌ Failed to restart with saved session: ${e.message}`);
@@ -255,7 +255,7 @@ export class BotManager {
         this.bots.set(newSlot, bot);
 
         try {
-            await bot.start();
+            await bot.start('account-add');
             return { success: true, message: `Auth process started for slot ${newSlot}` };
         } catch (error) {
             this.bots.delete(newSlot);

@@ -137,7 +137,7 @@ export class MinecraftBot {
         // this._cachedWhitelist = (this.config.settings.alertWhitelist || []).map(u => u.toLowerCase());
     }
 
-    async start() {
+    async start(startReason = 'manual') {
         if (this.isConnecting) {
             logger.warn(`Slot ${this.slot}: Already connecting`);
             return false;
@@ -160,7 +160,7 @@ export class MinecraftBot {
         this.status = 'connecting';
 
         try {
-            logger.info(`Slot ${this.slot}: Starting bot for ${this.accountConfig.username}`);
+            logger.info(`Slot ${this.slot}: Starting bot for ${this.accountConfig.username} (reason: ${startReason})`);
 
             const botOptions = {
                 host: this.config.minecraft.server.host,
@@ -317,7 +317,14 @@ export class MinecraftBot {
                 return;
             }
 
-            if (reasonStr.includes('already online') || reasonStr.includes('already connected')) {
+            const isSessionConflict = (
+                reasonStr.includes('already online') ||
+                reasonStr.includes('already connected') ||
+                reasonStr.includes('another instance of game') ||
+                reasonStr.includes('logged in from another')
+            );
+
+            if (isSessionConflict) {
                 this.alreadyOnlineRetries++;
                 if (this.alreadyOnlineRetries >= maxAlreadyOnlineRetries) {
                     logger.error(`Slot ${this.slot}: 'already online' repeated ${this.alreadyOnlineRetries} times. Auto-reconnect stopped for this slot.`);
@@ -325,7 +332,7 @@ export class MinecraftBot {
                     return;
                 }
 
-                logger.warn(`Slot ${this.slot}: Detected 'already online' error. Waiting ${Math.round(alreadyOnlineReconnectDelay / 1000)}s before reconnect (${this.alreadyOnlineRetries}/${maxAlreadyOnlineRetries}).`);
+                logger.warn(`Slot ${this.slot}: Detected session conflict kick. Waiting ${Math.round(alreadyOnlineReconnectDelay / 1000)}s before reconnect (${this.alreadyOnlineRetries}/${maxAlreadyOnlineRetries}).`);
                 this.tempReconnectDelay = alreadyOnlineReconnectDelay;
             } else {
                 this.alreadyOnlineRetries = 0;
@@ -981,7 +988,7 @@ export class MinecraftBot {
                 !this.isConnecting &&
                 !this.bot
             ) {
-                this.start();
+                this.start('reconnect');
             }
         }, delay);
     }
@@ -1031,7 +1038,7 @@ export class MinecraftBot {
         await this.stop();
 
         setTimeout(() => {
-            this.start();
+            this.start('restart');
         }, 2000);
 
         return true;
