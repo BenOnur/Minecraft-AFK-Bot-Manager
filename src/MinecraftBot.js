@@ -698,11 +698,21 @@ export class MinecraftBot {
         return false;
     }
 
+    getSpawnerItemCount() {
+        if (!this.bot) return 0;
+        return this.bot.inventory.items()
+            .filter(item => item?.name?.includes('spawner'))
+            .reduce((sum, item) => sum + (item.count || 0), 0);
+    }
+
     async breakBlockWithVerification(pos, blockName, options = {}) {
         const breakDelay = Math.max(0, options.breakDelay ?? 0);
-        const verifyDelay = Math.max(0, options.verifyDelay ?? 0);
-        const breakRetryCount = Math.max(0, options.breakRetryCount ?? 0);
+        const verifyDelay = Math.max(0, options.verifyDelay ?? 80);
+        const breakRetryCount = Math.max(0, options.breakRetryCount ?? 1);
         const breakRetryDelay = Math.max(0, options.breakRetryDelay ?? 100);
+        const inventoryConfirmDelay = Math.max(0, options.inventoryConfirmDelay ?? 80);
+        const goneConfirmChecks = Math.max(1, options.goneConfirmChecks ?? 3);
+        const goneConfirmInterval = Math.max(0, options.goneConfirmInterval ?? 50);
 
         for (let attempt = 0; attempt <= breakRetryCount; attempt++) {
             if (!this.bot || this.status !== 'online') {
@@ -718,6 +728,8 @@ export class MinecraftBot {
                 return { broken: false, reason: 'cannot_dig' };
             }
 
+            const spawnerBefore = this.getSpawnerItemCount();
+
             try {
                 // Force look inside dig to avoid extra per-block look wait.
                 await this.bot.dig(block, true);
@@ -731,13 +743,34 @@ export class MinecraftBot {
                 await sleep(breakDelay);
             }
 
+            // Stacked spawner servers may keep the same block but add items to inventory.
+            if (inventoryConfirmDelay > 0) {
+                await sleep(inventoryConfirmDelay);
+            }
+            const spawnerAfter = this.getSpawnerItemCount();
+            if (spawnerAfter > spawnerBefore) {
+                return { broken: true, byInventory: true, gained: spawnerAfter - spawnerBefore };
+            }
+
             if (verifyDelay > 0) {
                 await sleep(verifyDelay);
             }
 
-            const verifyBlock = this.bot?.blockAt(pos);
-            if (!verifyBlock || verifyBlock.name !== blockName) {
-                return { broken: true };
+            // Confirm block disappearance across multiple checks to avoid false positives.
+            let stillExists = false;
+            for (let i = 0; i < goneConfirmChecks; i++) {
+                if (i > 0 && goneConfirmInterval > 0) {
+                    await sleep(goneConfirmInterval);
+                }
+                const verifyBlock = this.bot?.blockAt(pos);
+                if (verifyBlock && verifyBlock.name === blockName) {
+                    stillExists = true;
+                    break;
+                }
+            }
+
+            if (!stillExists) {
+                return { broken: true, byInventory: false, gained: 0 };
             }
 
             if (attempt < breakRetryCount) {
@@ -766,11 +799,14 @@ export class MinecraftBot {
         const blockName = protectionConfig.blockType || 'spawner';
         const radius = protectionConfig.radius || 64;
         const breakDelay = Math.max(0, protectionConfig.breakDelay ?? 0);
-        const verifyDelay = Math.max(0, protectionConfig.verifyDelay ?? 0);
-        const breakRetryCount = Math.max(0, protectionConfig.breakRetryCount ?? 0);
+        const verifyDelay = Math.max(0, protectionConfig.verifyDelay ?? 80);
+        const breakRetryCount = Math.max(0, protectionConfig.breakRetryCount ?? 1);
         const breakRetryDelay = Math.max(0, protectionConfig.breakRetryDelay ?? 100);
         const maxBlocksPerScan = Math.max(1, protectionConfig.maxBlocksPerScan ?? 256);
         const maxBreakReach = Math.max(1, protectionConfig.maxBreakReach ?? 5.0);
+        const inventoryConfirmDelay = Math.max(0, protectionConfig.inventoryConfirmDelay ?? 80);
+        const goneConfirmChecks = Math.max(1, protectionConfig.goneConfirmChecks ?? 3);
+        const goneConfirmInterval = Math.max(0, protectionConfig.goneConfirmInterval ?? 50);
 
         // Small safety delay to allow maintenance/lobby messages to arrive.
         if (startDelay > 0) {
@@ -872,7 +908,10 @@ export class MinecraftBot {
                     breakDelay,
                     verifyDelay,
                     breakRetryCount,
-                    breakRetryDelay
+                    breakRetryDelay,
+                    inventoryConfirmDelay,
+                    goneConfirmChecks,
+                    goneConfirmInterval
                 });
 
                 if (breakResult.broken) {

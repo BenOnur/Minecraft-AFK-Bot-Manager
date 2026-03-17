@@ -94,11 +94,14 @@ function normalizeConfig(config) {
         radius: 64,
         startDelay: 250,
         breakDelay: 0,
-        verifyDelay: 0,
-        breakRetryCount: 0,
+        verifyDelay: 80,
+        breakRetryCount: 1,
         breakRetryDelay: 100,
         maxBlocksPerScan: 256,
         maxBreakReach: 5.0,
+        inventoryConfirmDelay: 80,
+        goneConfirmChecks: 3,
+        goneConfirmInterval: 50,
         ...(normalized.settings.protection || {})
     };
 
