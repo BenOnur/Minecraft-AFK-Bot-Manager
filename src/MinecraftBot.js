@@ -430,9 +430,9 @@ export class MinecraftBot {
             return Math.max(1, Math.round(rawGain));
         }
 
-        // Stacked spawner plugins can keep the same block while paying out fixed chunks.
+        // If stack block still exists and inventory did not increase, do not count as progress.
         if (stillSameBlock) {
-            return Math.max(1, batchSize);
+            return 0;
         }
 
         return 1;
@@ -1173,16 +1173,18 @@ export class MinecraftBot {
 
             // Stacked spawner servers may keep the same block and add items later (e.g. 10s cooldown).
             const confirmStart = Date.now();
+            let sawDisappearDuringConfirm = false;
             while ((Date.now() - confirmStart) <= inventoryConfirmTimeout) {
                 const spawnerAfter = this.getSpawnerItemCount();
                 if (spawnerAfter > spawnerBefore) {
                     return { broken: true, byInventory: true, gained: spawnerAfter - spawnerBefore };
                 }
 
-                // If block vanished during the wait, treat as broken and continue.
+                // Block may vanish briefly client-side; verify with stable checks below instead of instant success.
                 const midCheckBlock = this.bot?.blockAt(pos);
                 if (!midCheckBlock || midCheckBlock.name !== blockName) {
-                    return { broken: true, byInventory: false, gained: 0 };
+                    sawDisappearDuringConfirm = true;
+                    break;
                 }
 
                 // Fast stacked mode: if block still exists shortly after dig, keep hitting immediately.
@@ -1221,6 +1223,10 @@ export class MinecraftBot {
                     await sleep(blockGoneRecheckInterval);
                 }
                 return { broken: true, byInventory: false, gained: 0 };
+            }
+
+            if (sawDisappearDuringConfirm) {
+                return { broken: false, reason: 'block_reappeared' };
             }
 
             if (attempt < breakRetryCount) {
@@ -1281,6 +1287,8 @@ export class MinecraftBot {
         const stackedExhaustionIdleMs = Math.max(5000, protectionConfig.stackedExhaustionIdleMs ?? 45000);
         const stackedTargetMissingConfirmMs = Math.max(1000, protectionConfig.stackedTargetMissingConfirmMs ?? 8000);
         const noTargetRescanDelay = Math.max(50, protectionConfig.noTargetRescanDelay ?? 100);
+        const stackedNoGainRetryDelay = Math.max(250, protectionConfig.stackedNoGainRetryDelay ?? 5000);
+        const stackedNoGainBackoffAfter = Math.max(1, protectionConfig.stackedNoGainBackoffAfter ?? 2);
         const hasSavedAfkTargets = Array.isArray(this.afkProfile?.spawners) && this.afkProfile.spawners.length > 0;
 
         // Small safety delay to allow maintenance/lobby messages to arrive.
@@ -1409,6 +1417,7 @@ export class MinecraftBot {
                 let missingSince = null;
                 let nextMissingLogAt = 0;
                 let noProgressSince = Date.now();
+                let noGainStreak = 0;
                 while (this.bot && this.status === 'online') {
                     // Emergency: check if any enemy is within 10 blocks
                     if (this.isEnemyNearby()) {
@@ -1482,14 +1491,27 @@ export class MinecraftBot {
                     if (breakResult.broken) {
                         const stillSameBlock = this.bot?.blockAt(pos)?.name === blockName;
                         const gained = this.getStackedBatchGain(breakResult, stillSameBlock, stackBatchSize);
-                        lastBreakAt = Date.now();
-                        noProgressSince = Date.now();
-                        totalBroken += gained;
-                        brokeInScan += gained;
-                        brokenOnCurrentTarget += gained;
-                        this.stats.spawnersBroken += gained;
-                        if (totalBroken === 1 || totalBroken % 10 === 0 || gained > 1) {
-                            logger.info(`Slot ${this.slot}: Broken ${totalBroken} ${blockName}(s) so far`);
+
+                        if (gained > 0) {
+                            noGainStreak = 0;
+                            lastBreakAt = Date.now();
+                            noProgressSince = Date.now();
+                            totalBroken += gained;
+                            brokeInScan += gained;
+                            brokenOnCurrentTarget += gained;
+                            this.stats.spawnersBroken += gained;
+                            if (totalBroken === 1 || totalBroken % 10 === 0 || gained > 1) {
+                                logger.info(`Slot ${this.slot}: Broken ${totalBroken} ${blockName}(s) so far`);
+                            }
+                        } else {
+                            noGainStreak++;
+                            const isPinnedTarget = targetSource === 'afkProfile' || brokenOnCurrentTarget > 0;
+                            if (isPinnedTarget && noGainStreak >= stackedNoGainBackoffAfter) {
+                                logger.info(
+                                    `Slot ${this.slot}: ${pos} had ${noGainStreak} no-gain breaks. Waiting ${Math.round(stackedNoGainRetryDelay / 1000)}s cooldown.`
+                                );
+                                await sleep(stackedNoGainRetryDelay);
+                            }
                         }
 
                         // If block still exists, this is likely a stacked spawner, keep hitting same block.
@@ -1531,6 +1553,7 @@ export class MinecraftBot {
 
                     if (breakResult.reason === 'stack_still_exists' || breakResult.reason === 'block_reappeared') {
                         stackPendingInScan++;
+                        noGainStreak++;
                         const isPinnedTarget = targetSource === 'afkProfile' || brokenOnCurrentTarget > 0;
                         if (!isPinnedTarget) {
                             hitsOnCurrentBlock++;
@@ -1539,7 +1562,11 @@ export class MinecraftBot {
                                 logger.warn(`Slot ${this.slot}: ${pos} stacked target gave no progress for too long. Moving on.`);
                                 break;
                             }
-                            await sleep(noTargetRescanDelay);
+                            if (noGainStreak >= stackedNoGainBackoffAfter) {
+                                await sleep(stackedNoGainRetryDelay);
+                            } else {
+                                await sleep(noTargetRescanDelay);
+                            }
                         }
                         if (hitsOnCurrentBlock >= maxHitsPerBlock) {
                             logger.warn(`Slot ${this.slot}: Stack pending too long at ${pos}. Moving to next block.`);
@@ -1555,6 +1582,7 @@ export class MinecraftBot {
 
                     if (breakResult.reason === 'ghost_block_persisted') {
                         logger.warn(`Slot ${this.slot}: ${blockName} at ${pos} still exists after retries.`);
+                        noGainStreak++;
                         const isPinnedTarget = targetSource === 'afkProfile' || brokenOnCurrentTarget > 0;
                         if (!isPinnedTarget) {
                             hitsOnCurrentBlock++;
@@ -1563,7 +1591,11 @@ export class MinecraftBot {
                                 logger.warn(`Slot ${this.slot}: ${pos} ghost stack gave no progress for too long. Moving on.`);
                                 break;
                             }
-                            await sleep(noTargetRescanDelay);
+                            if (noGainStreak >= stackedNoGainBackoffAfter) {
+                                await sleep(stackedNoGainRetryDelay);
+                            } else {
+                                await sleep(noTargetRescanDelay);
+                            }
                         }
                         if (hitsOnCurrentBlock >= maxHitsPerBlock) break;
                         continue;

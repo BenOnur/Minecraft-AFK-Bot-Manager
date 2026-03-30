@@ -250,6 +250,7 @@ Koruma acik oldugunda:
 - AFK kayitli hedeflerde gorunur spawner bir an kaybolursa bot hemen geri donmez; `settings.protection.stackedDepletionConfirmMs` (varsayilan `30000`) suresi boyunca ayni noktayi tekrar tarar.
 - Son kirmadan hemen sonra target gorunmezse erken retreat engeli icin `settings.protection.stackedExhaustionIdleMs` (varsayilan `45000`) boyunca tekrar deneme yapar.
 - Tek bir hedef anlik kayboldugunda o hedefte kisa sureli bekleme penceresi `settings.protection.stackedTargetMissingConfirmMs` (varsayilan `8000`) ile yonetilir.
+- Envantere gain dusmeyen art arda denemelerde anti-ghost backoff uygulanir: `stackedNoGainBackoffAfter` ve `stackedNoGainRetryDelay`.
 - Slot AFK anchor'dan 20+ blok uzaklasirsa lobby kabul edilir.
 - Lobby modundayken bot `/home sp` komutunu hemen, sonrasinda 2 dakikada bir yollar.
 

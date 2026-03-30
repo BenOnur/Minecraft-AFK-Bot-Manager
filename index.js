@@ -121,6 +121,8 @@ function normalizeConfig(config) {
         stackedExhaustionIdleMs: 45000,
         stackedTargetMissingConfirmMs: 8000,
         noTargetRescanDelay: 100,
+        stackedNoGainRetryDelay: 5000,
+        stackedNoGainBackoffAfter: 2,
         maxHitsPerBlock: 256,
         goneConfirmChecks: 3,
         goneConfirmInterval: 50,
