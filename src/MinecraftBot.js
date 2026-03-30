@@ -1126,7 +1126,7 @@ export class MinecraftBot {
                 // ignore
             }
 
-            if ((Date.now() - lastRestartAt) >= restartMs) {
+            if (restartMs > 0 && (Date.now() - lastRestartAt) >= restartMs) {
                 try {
                     sendDigPacket(1);
                     sendDigPacket(0);
