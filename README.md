@@ -243,6 +243,7 @@ Koruma acik oldugunda:
 - Slotun o anki AFK noktasi `minecraft.accounts[].afkProfile.anchor` alanina kaydedilir.
 - `settings.protection.radius` icindeki spawner koordinatlari `afkProfile.spawners` listesine yazilir.
 - Stacked kirma chunk boyutu `settings.protection.stackBatchSize` (varsayilan `64`) ile ayarlanabilir.
+- AFK kayitli hedeflerde gorunur spawner bir an kaybolursa bot hemen geri donmez; `settings.protection.stackedDepletionConfirmMs` suresi boyunca tekrar tarama yapar.
 - Slot AFK anchor'dan 20+ blok uzaklasirsa lobby kabul edilir.
 - Lobby modundayken bot `/home sp` komutunu hemen, sonrasinda 2 dakikada bir yollar.
 

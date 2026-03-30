@@ -1261,6 +1261,12 @@ export class MinecraftBot {
         const blockGoneRecheckInterval = Math.max(20, protectionConfig.blockGoneRecheckInterval ?? 100);
         const maxHitsPerBlock = Math.max(1, protectionConfig.maxHitsPerBlock ?? 256);
         const stackBatchSize = Math.max(1, protectionConfig.stackBatchSize ?? 64);
+        const stackedDepletionConfirmMs = Math.max(
+            1000,
+            protectionConfig.stackedDepletionConfirmMs ?? Math.max(12000, inventoryConfirmTimeout + 1000)
+        );
+        const noTargetRescanDelay = Math.max(100, protectionConfig.noTargetRescanDelay ?? 500);
+        const hasSavedAfkTargets = Array.isArray(this.afkProfile?.spawners) && this.afkProfile.spawners.length > 0;
 
         // Small safety delay to allow maintenance/lobby messages to arrive.
         if (startDelay > 0) {
@@ -1289,6 +1295,8 @@ export class MinecraftBot {
 
         let totalBroken = 0;
         let completedByClearingTargets = false;
+        let noTargetSince = null;
+        let nextNoTargetLogAt = 0;
         // Loop: keep scanning and breaking until no spawners remain or inventory full
         while (this.bot && this.status === 'online') {
             if (this.isInLobby) {
@@ -1324,10 +1332,33 @@ export class MinecraftBot {
                     return;
                 }
 
+                if (hasSavedAfkTargets) {
+                    if (!noTargetSince) {
+                        noTargetSince = Date.now();
+                        nextNoTargetLogAt = 0;
+                    }
+
+                    const now = Date.now();
+                    const elapsed = now - noTargetSince;
+                    if (elapsed < stackedDepletionConfirmMs) {
+                        if (now >= nextNoTargetLogAt) {
+                            const remainSec = Math.ceil((stackedDepletionConfirmMs - elapsed) / 1000);
+                            logger.info(
+                                `Slot ${this.slot}: No visible ${blockName} at AFK targets yet. Re-checking for ${remainSec}s before retreat.`
+                            );
+                            nextNoTargetLogAt = now + 5000;
+                        }
+                        await sleep(noTargetRescanDelay);
+                        continue;
+                    }
+                }
+
                 logger.info(`Slot ${this.slot}: All ${blockName}s destroyed (${totalBroken} total). Preparing spawn retreat.`);
                 completedByClearingTargets = true;
                 break;
             }
+            noTargetSince = null;
+            nextNoTargetLogAt = 0;
 
             const orderedBlocks = this.orderBlocksSequentially(
                 blocks,
