@@ -247,8 +247,9 @@ Koruma acik oldugunda:
 - Slotun o anki AFK noktasi `minecraft.accounts[].afkProfile.anchor` alanina kaydedilir.
 - `settings.protection.radius` icindeki spawner koordinatlari `afkProfile.spawners` listesine yazilir.
 - Stacked kirma chunk boyutu `settings.protection.stackBatchSize` (varsayilan `64`) ile ayarlanabilir.
+- Koruma tamamlandi karari `settings.protection.protectionClearConfirmMs` (varsayilan `180000`) sureli bos tarama onayi ile verilir.
 - AFK kayitli hedeflerde gorunur spawner bir an kaybolursa bot hemen geri donmez; `settings.protection.stackedDepletionConfirmMs` (varsayilan `30000`) suresi boyunca ayni noktayi tekrar tarar.
-- Son kirmadan hemen sonra target gorunmezse erken retreat engeli icin `settings.protection.stackedExhaustionIdleMs` (varsayilan `45000`) boyunca tekrar deneme yapar.
+- Son kirmadan hemen sonra target gorunmezse erken retreat engeli icin `settings.protection.stackedExhaustionIdleMs` (varsayilan `300000`) boyunca tekrar deneme yapar.
 - Tek bir hedef anlik kayboldugunda o hedefte kisa sureli bekleme penceresi `settings.protection.stackedTargetMissingConfirmMs` (varsayilan `8000`) ile yonetilir.
 - Envantere gain dusmeyen art arda denemelerde anti-ghost backoff uygulanir: `stackedNoGainBackoffAfter` ve `stackedNoGainRetryDelay`.
 - Koruma sirasinda her basarili spawner kiriminda Telegram/Discord bildirim gider; tum hedefler temizlenince `/spawn 1-5` oncesi tamamlandi bildirimi gonderilir.

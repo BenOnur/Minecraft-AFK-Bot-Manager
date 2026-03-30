@@ -1240,12 +1240,13 @@ export class MinecraftBot {
         const radius = protectionConfig.radius || 64;
         const maxBlocksPerScan = Math.max(1, protectionConfig.maxBlocksPerScan ?? 256);
         const maxBreakReach = Math.max(1, protectionConfig.maxBreakReach ?? 5.0);
-        const noTargetConfirmMs = Math.max(1000, protectionConfig.stackedDepletionConfirmMs ?? 30000);
+        const noTargetConfirmMs = Math.max(1000, protectionConfig.protectionClearConfirmMs ?? 180000);
         const stackedTargetMissingConfirmMs = Math.max(1000, protectionConfig.stackedTargetMissingConfirmMs ?? 8000);
-        const stackedExhaustionIdleMs = Math.max(5000, protectionConfig.stackedExhaustionIdleMs ?? 45000);
+        const stackedExhaustionIdleMs = Math.max(5000, protectionConfig.stackedExhaustionIdleMs ?? 300000);
         const noTargetRescanDelay = Math.max(50, protectionConfig.noTargetRescanDelay ?? 100);
         const stackedNoGainRetryDelay = Math.max(250, protectionConfig.stackedNoGainRetryDelay ?? 5000);
         const stackedNoGainBackoffAfter = Math.max(1, protectionConfig.stackedNoGainBackoffAfter ?? 2);
+        const hasSavedAfkTargets = Array.isArray(this.afkProfile?.spawners) && this.afkProfile.spawners.length > 0;
 
         const breakOptions = {
             breakDelay: Math.max(0, protectionConfig.breakDelay ?? 0),
@@ -1319,11 +1320,28 @@ export class MinecraftBot {
                 const targetResult = this.getProtectionTargets(blockName, maxBlocksPerScan, radius, {
                     includeMissingSavedTargets: false
                 });
-                const blocks = targetResult.targets;
+                let blocks = targetResult.targets;
+                let targetSource = targetResult.source;
 
                 if (this.bot?.entity?.position) {
                     const currentPos = this.bot.entity.position;
                     blocks.sort((a, b) => currentPos.distanceSquared(a) - currentPos.distanceSquared(b));
+                }
+
+                if (blocks.length === 0) {
+                    if (hasSavedAfkTargets) {
+                        const savedFallbackTargets = this.getSavedSpawnerTargets(
+                            blockName,
+                            maxBlocksPerScan,
+                            radius,
+                            { includeMissing: true }
+                        );
+
+                        if (savedFallbackTargets.length > 0) {
+                            blocks = savedFallbackTargets;
+                            targetSource = 'afkProfile-fallback';
+                        }
+                    }
                 }
 
                 if (blocks.length === 0) {
@@ -1380,8 +1398,10 @@ export class MinecraftBot {
                             }
 
                             const missingElapsed = Date.now() - missingSince;
-                            const targetIdle = Date.now() - targetLastGainAt;
-                            if (missingElapsed < stackedTargetMissingConfirmMs || targetIdle < noTargetConfirmMs) {
+                            const missingLimit = targetSource === 'afkProfile-fallback'
+                                ? Math.min(2000, stackedTargetMissingConfirmMs)
+                                : stackedTargetMissingConfirmMs;
+                            if (missingElapsed < missingLimit) {
                                 await sleep(noTargetRescanDelay);
                                 continue;
                             }
@@ -1392,8 +1412,11 @@ export class MinecraftBot {
 
                         const breakResult = await this.breakBlockWithVerification(pos, blockName, breakOptions);
                         if (breakResult.broken) {
-                            const gained = Math.max(0, Number(breakResult.gained || 0));
                             const stillSameBlock = this.bot?.blockAt(pos)?.name === blockName;
+                            const gainedByInventory = Math.max(0, Number(breakResult.gained || 0));
+                            const gained = gainedByInventory > 0
+                                ? gainedByInventory
+                                : (stillSameBlock ? 0 : 1);
 
                             if (gained > 0) {
                                 noGainStreak = 0;
