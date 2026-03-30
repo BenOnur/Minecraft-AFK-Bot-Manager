@@ -4,11 +4,11 @@
 Minecraft AFK Bot Manager — Quality improvement from JavaScript to TypeScript.
 
 ## Current Position
-**Phase 1 complete** — TypeScript foundation established.
+**Phase 2 in progress** — Core Decomposition started.
 
-**Next step**: Further TypeScript migration (future phase)
+**Next step**: Continue typing BotManager and MinecraftBot (future phase)
 
-**Last session**: Completed 01-typescript-foundation plan execution
+**Last session**: Completed 02-01 (CommandHandler typed)
 
 ## Key Decisions Made
 - Incremental migration approach (file by file)
@@ -24,6 +24,7 @@ Minecraft AFK Bot Manager — Quality improvement from JavaScript to TypeScript.
 None.
 
 ## Recent Commits
+- `e8325df` feat(02-01): type CommandHandler utility
 - `e5962b2` feat(01-03): type Auth and CommandParser utilities
 - `592fc95` feat(01-02): add shared types and type Logger utility
 - `251ddb2` feat(01-01): add TypeScript infrastructure with strict mode

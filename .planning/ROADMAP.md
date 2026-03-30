@@ -32,8 +32,8 @@
 
 ### Plans
 - [x] 01-01-PLAN.md — Setup TypeScript config (tsconfig.json, package.json scripts)
-- [ ] 01-02-PLAN.md — Create src/types/ and type Logger utility
-- [ ] 01-03-PLAN.md — Type Auth and CommandParser utilities
+- [x] 01-02-PLAN.md — Create src/types/ and type Logger utility
+- [x] 01-03-PLAN.md — Type Auth and CommandParser utilities
 
 ---
 
