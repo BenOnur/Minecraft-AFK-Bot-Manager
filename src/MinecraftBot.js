@@ -1420,7 +1420,9 @@ export class MinecraftBot {
             breakRetryCount: packetDigEnabled ? 0 : Math.max(0, protectionConfig.breakRetryCount ?? 1),
             breakRetryDelay: Math.max(0, protectionConfig.breakRetryDelay ?? 100),
             // Keep normal hit loop fast; occasional deep-probe is handled per-attempt below.
-            inventoryConfirmTimeout: Math.min(1500, Math.max(350, configuredInventoryConfirmTimeout)),
+            inventoryConfirmTimeout: packetDigEnabled
+                ? Math.max(5000, configuredInventoryConfirmTimeout)
+                : Math.min(1500, Math.max(350, configuredInventoryConfirmTimeout)),
             inventoryConfirmPollInterval: Math.max(100, protectionConfig.inventoryConfirmPollInterval ?? 100),
             goneConfirmChecks: Math.max(1, protectionConfig.goneConfirmChecks ?? 3),
             goneConfirmInterval: Math.max(0, protectionConfig.goneConfirmInterval ?? 50),
@@ -1604,21 +1606,33 @@ export class MinecraftBot {
 
                         const quickFollowUpSwing = hasAimedAtTarget;
                         const shouldDeepProbe = noGainStreak > 0 && (noGainStreak % 8 === 0);
-                        const adaptiveConfirmTimeout = shouldDeepProbe
-                            ? Math.max(2500, breakOptions.inventoryConfirmTimeout)
-                            : breakOptions.inventoryConfirmTimeout;
+                        const adaptiveConfirmTimeout = packetDigEnabled
+                            ? Math.max(5500, breakOptions.inventoryConfirmTimeout)
+                            : (shouldDeepProbe
+                                ? Math.max(2500, breakOptions.inventoryConfirmTimeout)
+                                : breakOptions.inventoryConfirmTimeout);
                         const maxDigHoldMs = Math.max(3000, Math.min(7000, breakOptions.digActionTimeout));
                         const mediumDigHoldMs = Math.max(2400, Math.min(maxDigHoldMs, 3400));
                         const fastDigHoldMs = Math.max(1800, Math.min(maxDigHoldMs, 2600));
                         let adaptiveDigTimeout = fastDigHoldMs;
-                        if (noGainStreak >= 3) {
-                            adaptiveDigTimeout = mediumDigHoldMs;
-                        }
-                        if (noGainStreak >= 6) {
+                        if (packetDigEnabled) {
                             adaptiveDigTimeout = maxDigHoldMs;
-                        }
-                        if (shouldDeepProbe) {
-                            adaptiveDigTimeout = Math.min(7000, Math.max(maxDigHoldMs, adaptiveConfirmTimeout + 900));
+                            if (noGainStreak >= 4) {
+                                adaptiveDigTimeout = Math.min(7000, maxDigHoldMs + 1000);
+                            }
+                            if (shouldDeepProbe) {
+                                adaptiveDigTimeout = Math.min(7000, Math.max(adaptiveDigTimeout, adaptiveConfirmTimeout));
+                            }
+                        } else {
+                            if (noGainStreak >= 3) {
+                                adaptiveDigTimeout = mediumDigHoldMs;
+                            }
+                            if (noGainStreak >= 6) {
+                                adaptiveDigTimeout = maxDigHoldMs;
+                            }
+                            if (shouldDeepProbe) {
+                                adaptiveDigTimeout = Math.min(7000, Math.max(maxDigHoldMs, adaptiveConfirmTimeout + 900));
+                            }
                         }
 
                         const breakResult = await this.breakBlockWithVerification(pos, blockName, {
