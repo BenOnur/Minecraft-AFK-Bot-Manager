@@ -519,52 +519,52 @@ export class CommandHandler {
 
     handleTelegramHelp() {
         const helpText = `
-<b>Minecraft AFK Bot Manager</b>
---------------------------------
+**Minecraft AFK Bot Manager**
+------------------------------
 
-<b>Mesajlasma</b>
-<code>/say &lt;slot&gt; &lt;mesaj&gt;</code> - Belirli slota mesaj
-<code>/say 1,2,3 &lt;mesaj&gt;</code> - Birden fazla slota
-<code>/say 1-3 &lt;mesaj&gt;</code> - Slot araligina
-<code>/all &lt;mesaj&gt;</code> - Tum botlara mesaj
+**Mesajlasma**
+/say <slot> <mesaj> - Belirli slota mesaj
+/say 1,2,3 <mesaj> - Birden fazla slota
+/say 1-3 <mesaj> - Slot araligina
+/all <mesaj> - Tum botlara mesaj
 
-<b>Durum ve Bilgi</b>
-<code>/status</code> - Tum botlarin durumu
-<code>/status &lt;slot&gt;</code> - Belirli bot durumu
-<code>/inv &lt;slot&gt;</code> - Envanter goruntule
-<code>/stats</code> - Tum bot istatistikleri
-<code>/stats &lt;slot&gt;</code> - Belirli bot istatistikleri
+**Durum ve Bilgi**
+/status - Tum botlarin durumu
+/status <slot> - Belirli bot durumu
+/inv <slot> - Envanter goruntule
+/stats - Tum bot istatistikleri
+/stats <slot> - Belirli bot istatistikleri
 
-<b>Bot Kontrolu</b>
-<code>/start &lt;slot&gt;</code>
-<code>/stop &lt;slot&gt;</code>
-<code>/restart &lt;slot|all&gt;</code>
-<code>/pause &lt;slot&gt;</code>
-<code>/resume &lt;slot&gt;</code>
+**Bot Kontrolu**
+/start <slot>
+/stop <slot>
+/restart <slot|all>
+/pause <slot>
+/resume <slot>
 
-<b>Hesap Yonetimi</b>
-<code>/account add</code>
-<code>/account remove &lt;slot&gt;</code>
-<code>/account list</code>
+**Hesap Yonetimi**
+/account add
+/account remove <slot>
+/account list
 
-<b>Hareket</b>
-<code>/forward &lt;slot&gt; &lt;blok&gt;</code> (/f)
-<code>/back &lt;slot&gt; &lt;blok&gt;</code> (/b)
-<code>/left &lt;slot&gt; &lt;blok&gt;</code> (/l)
-<code>/right &lt;slot&gt; &lt;blok&gt;</code> (/r)
+**Hareket**
+/forward <slot> <blok> (/f)
+/back <slot> <blok> (/b)
+/left <slot> <blok> (/l)
+/right <slot> <blok> (/r)
 
-<b>Esya</b>
-<code>/drop &lt;slot&gt; all</code>
-<code>/drop &lt;slot&gt; &lt;esya&gt; [adet]</code>
+**Esya**
+/drop <slot> all
+/drop <slot> <esya> [adet]
 
-<b>Guvenlik</b>
-<code>/whitelist add &lt;oyuncu&gt;</code>
-<code>/whitelist remove &lt;oyuncu&gt;</code>
-<code>/whitelist list</code>
-<code>/protect &lt;slot&gt; [on|off]</code>
-<code>/afkset &lt;slot&gt;</code>
+**Guvenlik**
+/whitelist add <oyuncu>
+/whitelist remove <oyuncu>
+/whitelist list
+/protect <slot> [on|off]
+/afkset <slot>
 
-<b>Slot formatlari:</b> <code>1</code> - <code>1,2,3</code> - <code>1-5</code> - <code>all</code>
+**Slot formatlari:** 1 - 1,2,3 - 1-5 - all
         `.trim();
 
         return { success: true, message: helpText, parseOptions: { parse_mode: 'HTML' } };
