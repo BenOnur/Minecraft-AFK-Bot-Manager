@@ -257,6 +257,7 @@ Koruma acik oldugunda:
 - Kirma denemelerinde `raycast` yuz secimi ve zorunlu hedefe bakis kullanilarak anti-cheat uyumlulugu artirildi.
 - Varsayilan olarak packet tabanli kazma aktif: `packetDigEnabled=true`, hiz ayarlari `packetDigPulseMs`; `packetDigRestartMs=0` ile gereksiz restart paketi kapali tutulur.
 - Packet modunda envanter gain dogrulama penceresi daha uzun tutulur (onerilen `inventoryConfirmTimeout >= 9000ms`), boylece stack drop gecikmeleri kacirilmaz.
+- Packet hold sirasinda ekstra arm-spam kaldirildi; akıs `start -> hold -> stop` seklinde daha stabil tutulur.
 - Kirma denemeleri arasinda insan-benzeri rastgele gecikme vardir; `settings.protection.randomBreakIntervalMaxMs` en fazla `800ms` olacak sekilde uygulanir.
 - Koruma sirasinda her basarili spawner kiriminda Telegram/Discord bildirim gider; tum hedefler temizlenince `/spawn 1-5` oncesi tamamlandi bildirimi gonderilir.
 - Slot AFK anchor'dan 20+ blok uzaklasirsa lobby kabul edilir.

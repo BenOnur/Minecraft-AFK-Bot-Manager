@@ -1136,12 +1136,6 @@ export class MinecraftBot {
                 }
             }
 
-            try {
-                this.bot.swingArm('right', true);
-            } catch (_) {
-                // ignore
-            }
-
             if (restartMs > 0 && (Date.now() - lastRestartAt) >= restartMs) {
                 try {
                     sendDigPacket(1);
