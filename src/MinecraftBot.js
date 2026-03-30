@@ -1087,14 +1087,13 @@ export class MinecraftBot {
 
     async performPacketDigCycle(pos, options = {}) {
         if (!this.bot?._client) {
-            return { gained: 0, blockMissingDuringHold: false };
+            return { gained: 0 };
         }
 
         const holdMs = Math.max(250, options.digActionTimeout ?? 1200);
         const pulseMs = Math.max(45, options.packetDigPulseMs ?? 120);
         const restartMs = Math.max(0, options.packetDigRestartMs ?? 0);
         const spawnerBefore = Number.isFinite(options.spawnerBefore) ? options.spawnerBefore : null;
-        const blockName = typeof options.blockName === 'string' ? options.blockName : null;
         const location = {
             x: Math.floor(Number(pos.x)),
             y: Math.floor(Number(pos.y)),
@@ -1116,7 +1115,6 @@ export class MinecraftBot {
         sendDigPacket(0);
         let lastRestartAt = Date.now();
         const startedAt = Date.now();
-        let blockMissingDuringHold = false;
 
         while ((Date.now() - startedAt) <= holdMs) {
             if (!this.bot || this.status !== 'online') {
@@ -1133,17 +1131,8 @@ export class MinecraftBot {
                     }
                     await sleep(90);
                     return {
-                        gained: gainedNow,
-                        blockMissingDuringHold: false
+                        gained: gainedNow
                     };
-                }
-            }
-
-            if (blockName) {
-                const liveBlock = this.bot.blockAt(pos);
-                if (!liveBlock || liveBlock.name !== blockName) {
-                    blockMissingDuringHold = true;
-                    break;
                 }
             }
 
@@ -1177,7 +1166,7 @@ export class MinecraftBot {
         if (spawnerBefore !== null) {
             gained = Math.max(0, this.getSpawnerItemCount() - spawnerBefore);
         }
-        return { gained, blockMissingDuringHold };
+        return { gained };
     }
 
     orderBlocksSequentially(blocks, startPos = null) {
@@ -1308,8 +1297,7 @@ export class MinecraftBot {
                         digActionTimeout,
                         packetDigPulseMs,
                         packetDigRestartMs,
-                        spawnerBefore,
-                        blockName
+                        spawnerBefore
                     });
                 } else {
                     digSettled = false;
@@ -1351,9 +1339,23 @@ export class MinecraftBot {
                 return { broken: true, byInventory: true, gained: packetCycleResult.gained };
             }
 
+            if (packetDigEnabled) {
+                const packetConfirmStart = Date.now();
+                while ((Date.now() - packetConfirmStart) <= inventoryConfirmTimeout) {
+                    const spawnerAfter = this.getSpawnerItemCount();
+                    if (spawnerAfter > spawnerBefore) {
+                        await releaseDigIfPending(true);
+                        return { broken: true, byInventory: true, gained: spawnerAfter - spawnerBefore };
+                    }
+                    await sleep(inventoryConfirmPollInterval);
+                }
+                await releaseDigIfPending(true);
+                return { broken: false, reason: 'stack_still_exists' };
+            }
+
             // Stacked spawner servers may keep the same block and add items later (e.g. 10s cooldown).
             const confirmStart = Date.now();
-            let sawDisappearDuringConfirm = packetCycleResult?.blockMissingDuringHold === true;
+            let sawDisappearDuringConfirm = false;
             while ((Date.now() - confirmStart) <= inventoryConfirmTimeout) {
                 const spawnerAfter = this.getSpawnerItemCount();
                 if (spawnerAfter > spawnerBefore) {
