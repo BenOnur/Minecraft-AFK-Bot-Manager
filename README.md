@@ -253,6 +253,7 @@ Koruma acik oldugunda:
 - Tek bir hedef anlik kayboldugunda o hedefte kisa sureli bekleme penceresi `settings.protection.stackedTargetMissingConfirmMs` (varsayilan `8000`) ile yonetilir.
 - Envantere gain dusmeyen art arda denemelerde anti-ghost backoff uygulanir: `stackedNoGainBackoffAfter` ve `stackedNoGainRetryDelay`.
 - Surekli kirma hissi icin varsayilanlar hizlandirildi: `inventoryConfirmPollInterval=100`, `stackedFastGraceMs=900`, `stackedNoGainRetryDelay=350`, `stackedNoGainBackoffAfter=8`.
+- Kirma denemeleri arasinda insan-benzeri rastgele gecikme vardir; `settings.protection.randomBreakIntervalMaxMs` en fazla `800ms` olacak sekilde uygulanir.
 - Koruma sirasinda her basarili spawner kiriminda Telegram/Discord bildirim gider; tum hedefler temizlenince `/spawn 1-5` oncesi tamamlandi bildirimi gonderilir.
 - Slot AFK anchor'dan 20+ blok uzaklasirsa lobby kabul edilir.
 - Lobby modundayken bot `/home sp` komutunu hemen, sonrasinda 2 dakikada bir yollar.

@@ -91,6 +91,7 @@
             "stackedExhaustionIdleMs": 300000,
             "stackedTargetMissingConfirmMs": 8000,
             "noTargetRescanDelay": 100,
+            "randomBreakIntervalMaxMs": 800,
             "stackedNoGainRetryDelay": 350,
             "stackedNoGainBackoffAfter": 8,
             "maxHitsPerBlock": 256,

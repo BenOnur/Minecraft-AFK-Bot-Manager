@@ -1292,6 +1292,7 @@ export class MinecraftBot {
         const noTargetRescanDelay = Math.max(50, protectionConfig.noTargetRescanDelay ?? 100);
         const stackedNoGainRetryDelay = Math.min(1000, Math.max(100, protectionConfig.stackedNoGainRetryDelay ?? 350));
         const stackedNoGainBackoffAfter = Math.max(8, protectionConfig.stackedNoGainBackoffAfter ?? 8);
+        const randomBreakIntervalMaxMs = Math.min(800, Math.max(0, protectionConfig.randomBreakIntervalMaxMs ?? 800));
         const hasSavedAfkTargets = Array.isArray(this.afkProfile?.spawners) && this.afkProfile.spawners.length > 0;
 
         const configuredInventoryConfirmTimeout =
@@ -1345,6 +1346,15 @@ export class MinecraftBot {
         const notify = (message) => {
             if (this.onInventoryAlert) {
                 this.onInventoryAlert(message);
+            }
+        };
+        const sleepWithBreakJitter = async (baseDelay = 0) => {
+            const jitter = randomBreakIntervalMaxMs > 0
+                ? Math.floor(Math.random() * (randomBreakIntervalMaxMs + 1))
+                : 0;
+            const totalDelay = Math.max(0, baseDelay) + jitter;
+            if (totalDelay > 0) {
+                await sleep(totalDelay);
             }
         };
 
@@ -1452,7 +1462,7 @@ export class MinecraftBot {
                                 ? Math.min(2000, stackedTargetMissingConfirmMs)
                                 : stackedTargetMissingConfirmMs;
                             if (missingElapsed < missingLimit) {
-                                await sleep(noTargetRescanDelay);
+                                await sleepWithBreakJitter(noTargetRescanDelay);
                                 continue;
                             }
                             break;
@@ -1509,14 +1519,14 @@ export class MinecraftBot {
 
                             if (stillSameBlock) {
                                 if (noGainStreak >= stackedNoGainBackoffAfter) {
-                                    await sleep(stackedNoGainRetryDelay);
+                                    await sleepWithBreakJitter(stackedNoGainRetryDelay);
                                 } else {
-                                    await sleep(noTargetRescanDelay);
+                                    await sleepWithBreakJitter(noTargetRescanDelay);
                                 }
                                 continue;
                             }
 
-                            await sleep(noTargetRescanDelay);
+                            await sleepWithBreakJitter(noTargetRescanDelay);
                             continue;
                         }
 
@@ -1537,9 +1547,9 @@ export class MinecraftBot {
                             }
 
                             if (noGainStreak >= stackedNoGainBackoffAfter) {
-                                await sleep(stackedNoGainRetryDelay);
+                                await sleepWithBreakJitter(stackedNoGainRetryDelay);
                             } else {
-                                await sleep(noTargetRescanDelay);
+                                await sleepWithBreakJitter(noTargetRescanDelay);
                             }
                             continue;
                         }
@@ -1548,7 +1558,7 @@ export class MinecraftBot {
                             break;
                         }
 
-                        await sleep(noTargetRescanDelay);
+                        await sleepWithBreakJitter(noTargetRescanDelay);
                     }
                 }
 
