@@ -1476,10 +1476,19 @@ export class MinecraftBot {
                         const adaptiveConfirmTimeout = shouldDeepProbe
                             ? Math.max(2500, breakOptions.inventoryConfirmTimeout)
                             : breakOptions.inventoryConfirmTimeout;
-                        const baseDigHoldMs = Math.max(1000, Math.min(6000, breakOptions.digActionTimeout));
-                        const adaptiveDigTimeout = shouldDeepProbe
-                            ? Math.min(7000, Math.max(baseDigHoldMs + 800, adaptiveConfirmTimeout + 800))
-                            : baseDigHoldMs;
+                        const maxDigHoldMs = Math.max(1200, Math.min(7000, breakOptions.digActionTimeout));
+                        const mediumDigHoldMs = Math.max(1600, Math.min(maxDigHoldMs, 2400));
+                        const fastDigHoldMs = Math.max(900, Math.min(maxDigHoldMs, 1400));
+                        let adaptiveDigTimeout = fastDigHoldMs;
+                        if (noGainStreak >= 3) {
+                            adaptiveDigTimeout = mediumDigHoldMs;
+                        }
+                        if (noGainStreak >= 6) {
+                            adaptiveDigTimeout = maxDigHoldMs;
+                        }
+                        if (shouldDeepProbe) {
+                            adaptiveDigTimeout = Math.min(7000, Math.max(maxDigHoldMs, adaptiveConfirmTimeout + 900));
+                        }
 
                         const breakResult = await this.breakBlockWithVerification(pos, blockName, {
                             ...breakOptions,
@@ -1496,6 +1505,11 @@ export class MinecraftBot {
                             preDigPause: quickFollowUpSwing ? Math.min(12, breakOptions.preDigPause) : breakOptions.preDigPause
                         });
                         hasAimedAtTarget = true;
+
+                        if (!this.bot || this.status !== 'online') {
+                            break;
+                        }
+
                         if (breakResult.broken) {
                             const stillSameBlock = this.bot?.blockAt(pos)?.name === blockName;
                             const gainedByInventory = Math.max(0, Number(breakResult.gained || 0));
