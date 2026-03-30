@@ -66,6 +66,21 @@ export class BotManager {
     async initialize() {
         logger.info('Initializing Bot Manager');
 
+        let accountDefaultsChanged = false;
+        for (const accountConfig of this.config.minecraft.accounts) {
+            if (accountConfig.autoStart === undefined) {
+                accountConfig.autoStart = true;
+                accountDefaultsChanged = true;
+            }
+        }
+
+        if (accountDefaultsChanged) {
+            const saved = await this.saveConfig();
+            if (!saved) {
+                logger.warn('Failed to persist default autoStart flags during initialization.');
+            }
+        }
+
         for (const accountConfig of this.config.minecraft.accounts) {
             const bot = new MinecraftBot(this.config, accountConfig);
             // Callback for alerts
@@ -102,11 +117,30 @@ export class BotManager {
         this.broadcastMessage(message);
     }
 
+    getAccountConfig(slot) {
+        return this.config.minecraft.accounts.find(acc => acc.slot === slot) || null;
+    }
+
+    async setAccountAutoStart(slot, enabled) {
+        const accountConfig = this.getAccountConfig(slot);
+        if (!accountConfig) {
+            return false;
+        }
+
+        accountConfig.autoStart = enabled;
+        return await this.saveConfig();
+    }
+
     async startBot(slot) {
         const bot = this.bots.get(slot);
         if (!bot) {
             logger.error(`Slot ${slot} not found`);
             return false;
+        }
+
+        const saved = await this.setAccountAutoStart(slot, true);
+        if (!saved) {
+            logger.warn(`Slot ${slot}: Failed to persist autoStart=true, continuing with manual start.`);
         }
 
         return await bot.start('manual');
@@ -119,7 +153,13 @@ export class BotManager {
             return false;
         }
 
-        return await bot.stop();
+        const stopped = await bot.stop();
+        const saved = await this.setAccountAutoStart(slot, false);
+        if (!saved) {
+            logger.error(`Slot ${slot}: Bot stopped but autoStart=false could not be saved.`);
+        }
+
+        return stopped;
     }
 
     async restartBot(slot) {
@@ -127,6 +167,11 @@ export class BotManager {
         if (!bot) {
             logger.error(`Slot ${slot} not found`);
             return false;
+        }
+
+        const saved = await this.setAccountAutoStart(slot, true);
+        if (!saved) {
+            logger.warn(`Slot ${slot}: Failed to persist autoStart=true, continuing with restart.`);
         }
 
         return await bot.restart();
@@ -162,6 +207,32 @@ export class BotManager {
 
         await Promise.all(promises);
         logger.info('All bots started');
+    }
+
+    async startAutoStartBots() {
+        logger.info('Starting autoStart-enabled bots');
+        const promises = [];
+        const skipped = [];
+
+        for (const [slot, bot] of this.bots.entries()) {
+            const accountConfig = this.getAccountConfig(slot);
+            const autoStartEnabled = accountConfig?.autoStart !== false;
+
+            if (!autoStartEnabled) {
+                skipped.push(slot);
+                continue;
+            }
+
+            promises.push(bot.start('startup'));
+        }
+
+        await Promise.all(promises);
+
+        if (skipped.length > 0) {
+            logger.info(`Skipped autoStart-disabled slots on startup: ${skipped.join(', ')}`);
+        }
+
+        logger.info(`Auto-start complete. Started: ${promises.length}, Skipped: ${skipped.length}`);
     }
 
     async stopAll() {
@@ -217,7 +288,8 @@ export class BotManager {
                 username: username,
                 auth: 'microsoft',
                 slot: newSlot,
-                authUsername: tempAuthUsername
+                authUsername: tempAuthUsername,
+                autoStart: true
             });
             await this.saveConfig();
 
@@ -320,7 +392,8 @@ export class BotManager {
                 return {
                     slot: acc.slot,
                     username: acc.username,
-                    status: runtimeStatus
+                    status: runtimeStatus,
+                    autoStart: acc.autoStart !== false
                 };
             });
     }

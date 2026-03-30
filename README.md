@@ -166,7 +166,7 @@ npm start
 
 Uygulama baslayinca:
 - Telegram/Discord botlari aktifse komut alir.
-- `minecraft.accounts` doluysa botlar baglanmayi dener.
+- `minecraft.accounts` doluysa yalnizca `autoStart: true` olan slotlar baglanmayi dener.
 - Hesap yoksa `/account add` ile hesap ekleyebilirsiniz.
 
 ## 5) Microsoft hesap ekleme (`/account add`)
@@ -202,6 +202,10 @@ Oturum verileri `sessions/` klasorunde tutulur. Bu klasoru silerseniz tekrar gir
 - `/restart <slot|all>` (alias: `/reconnect <slot|all>`)
 - `/pause <slot>`
 - `/resume <slot>`
+
+Not:
+- `/stop <slot>` komutu o slotu kalici olarak `autoStart: false` yapar.
+- `/start <slot>` veya `/restart <slot>` komutu tekrar `autoStart: true` yapar.
 
 ### 6.4 Hesap yonetimi
 

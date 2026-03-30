@@ -9,17 +9,20 @@
             {
                 "slot": 1,
                 "username": "hesap1@email.com",
-                "auth": "microsoft"
+                "auth": "microsoft",
+                "autoStart": true
             },
             {
                 "slot": 2,
                 "username": "hesap2@email.com",
-                "auth": "microsoft"
+                "auth": "microsoft",
+                "autoStart": true
             },
             {
                 "slot": 3,
                 "username": "hesap3@email.com",
-                "auth": "microsoft"
+                "auth": "microsoft",
+                "autoStart": true
             }
         ]
     },

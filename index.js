@@ -42,6 +42,11 @@ function normalizeConfig(config) {
     if (!Array.isArray(normalized.minecraft.accounts)) {
         normalized.minecraft.accounts = [];
     }
+    for (const account of normalized.minecraft.accounts) {
+        if (account && typeof account === 'object' && account.autoStart === undefined) {
+            account.autoStart = true;
+        }
+    }
 
     normalized.telegram = normalized.telegram || {};
     if (!Array.isArray(normalized.telegram.allowedUsers)) {
@@ -175,10 +180,10 @@ async function main() {
         // Set platform bots for notifications
         botManager.setPlatformBots(telegramBot, discordBot);
 
-        // Start all Minecraft bots
-        logger.info('Starting all Minecraft bots...');
-        await botManager.startAll();
-        logger.info('Bots initialization complete. Use /start <slot> to connect.');
+        // Start only autoStart-enabled Minecraft bots
+        logger.info('Starting autoStart-enabled Minecraft bots...');
+        await botManager.startAutoStartBots();
+        logger.info('Bot initialization complete. Use /start <slot> to connect any stopped slot.');
 
         logger.info('='.repeat(50));
         logger.info('All systems started successfully!');
