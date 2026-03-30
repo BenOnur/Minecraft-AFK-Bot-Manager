@@ -519,53 +519,52 @@ export class CommandHandler {
 
     handleTelegramHelp() {
         const helpText = `
-🤖 <b>Minecraft AFK Bot Manager</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━
+<b>Minecraft AFK Bot Manager</b>
+--------------------------------
 
-💬 <b>Mesajlaşma</b>
-<code>/say <slot> <mesaj></code> — Belirli slota mesaj
-<code>/say 1,2,3 <mesaj></code> — Birden fazla slota
-<code>/say 1-3 <mesaj></code> — Slot aralığına
-<code>/all <mesaj></code> — Tüm botlara mesaj
+<b>Mesajlasma</b>
+<code>/say &lt;slot&gt; &lt;mesaj&gt;</code> - Belirli slota mesaj
+<code>/say 1,2,3 &lt;mesaj&gt;</code> - Birden fazla slota
+<code>/say 1-3 &lt;mesaj&gt;</code> - Slot araligina
+<code>/all &lt;mesaj&gt;</code> - Tum botlara mesaj
 
-📊 <b>Durum & Bilgi</b>
-<code>/status</code> — Tüm botların durumu
-<code>/status <slot></code> — Belirli bot durumu (/s)
-<code>/inv <slot></code> — Envanter görüntüle
-<code>/stats</code> — Tüm bot istatistikleri
-<code>/stats <slot></code> — Belirli bot istatistikleri
+<b>Durum ve Bilgi</b>
+<code>/status</code> - Tum botlarin durumu
+<code>/status &lt;slot&gt;</code> - Belirli bot durumu
+<code>/inv &lt;slot&gt;</code> - Envanter goruntule
+<code>/stats</code> - Tum bot istatistikleri
+<code>/stats &lt;slot&gt;</code> - Belirli bot istatistikleri
 
-🎮 <b>Bot Kontrolü</b>
-<code>/start <slot></code> — Botu başlat
-<code>/stop <slot></code> — Botu durdur
-<code>/restart <slot|all></code> — Yeniden başlat
-<code>/pause <slot></code> — Anti-AFK durdur
-<code>/resume <slot></code> — Anti-AFK devam
+<b>Bot Kontrolu</b>
+<code>/start &lt;slot&gt;</code>
+<code>/stop &lt;slot&gt;</code>
+<code>/restart &lt;slot|all&gt;</code>
+<code>/pause &lt;slot&gt;</code>
+<code>/resume &lt;slot&gt;</code>
 
-👤 <b>Hesap Yönetimi</b>
-<code>/account add</code> — Yeni hesap ekle (MS Auth)
-<code>/account remove <slot></code> — Hesap sil
-<code>/account list</code> — Hesapları listele
+<b>Hesap Yonetimi</b>
+<code>/account add</code>
+<code>/account remove &lt;slot&gt;</code>
+<code>/account list</code>
 
-🏃 <b>Hareket</b>
-<code>/forward <slot> <blok></code> — İleri git (/f)
-<code>/back <slot> <blok></code> — Geri git (/b)
-<code>/left <slot> <blok></code> — Sola git (/l)
-<code>/right <slot> <blok></code> — Sağa git (/r)
+<b>Hareket</b>
+<code>/forward &lt;slot&gt; &lt;blok&gt;</code> (/f)
+<code>/back &lt;slot&gt; &lt;blok&gt;</code> (/b)
+<code>/left &lt;slot&gt; &lt;blok&gt;</code> (/l)
+<code>/right &lt;slot&gt; &lt;blok&gt;</code> (/r)
 
-🗑️ <b>Eşya</b>
-<code>/drop <slot> all</code> — Tüm eşyaları bırak
-<code>/drop <slot> <eşya> [adet]</code> — Belirli eşya bırak
+<b>Esya</b>
+<code>/drop &lt;slot&gt; all</code>
+<code>/drop &lt;slot&gt; &lt;esya&gt; [adet]</code>
 
-🛡️ <b>Güvenlik</b>
-<code>/whitelist add <oyuncu></code> — Whitelist'e ekle
-<code>/whitelist remove <oyuncu></code> — Whitelist'ten çıkar
-<code>/whitelist list</code> — Whitelist'i göster
-<code>/protect <slot> [on|off]</code> — Lobby + spawner korumasını aç/kapat
-<code>/afkset <slot></code> — AFK anchor + çevre spawnerlarını kaydet
+<b>Guvenlik</b>
+<code>/whitelist add &lt;oyuncu&gt;</code>
+<code>/whitelist remove &lt;oyuncu&gt;</code>
+<code>/whitelist list</code>
+<code>/protect &lt;slot&gt; [on|off]</code>
+<code>/afkset &lt;slot&gt;</code>
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-💡 <b>Slot formatları:</b> <code>1</code> · <code>1,2,3</code> · <code>1-5</code> · <code>all</code>
+<b>Slot formatlari:</b> <code>1</code> - <code>1,2,3</code> - <code>1-5</code> - <code>all</code>
         `.trim();
 
         return { success: true, message: helpText, parseOptions: { parse_mode: 'HTML' } };
