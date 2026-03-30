@@ -1122,6 +1122,8 @@ export class MinecraftBot {
         const skipLook = options.skipLook === true;
         const alwaysRealignAim = options.alwaysRealignAim !== false;
         const forceLookForDig = options.forceLookForDig !== false;
+        const digActionTimeout = Math.max(150, options.digActionTimeout ?? 650);
+        const postDigReleaseDelay = Math.max(0, options.postDigReleaseDelay ?? 25);
         const blockGoneStableMs = Math.max(0, options.blockGoneStableMs ?? 500);
         const blockGoneRecheckInterval = Math.max(20, options.blockGoneRecheckInterval ?? 100);
 
@@ -1160,7 +1162,37 @@ export class MinecraftBot {
                         });
                     }
                 }
-                await this.bot.dig(block, forceLookForDig);
+                let digSettled = false;
+                let digError = null;
+                const digPromise = this.bot.dig(block, forceLookForDig)
+                    .then(() => {
+                        digSettled = true;
+                    })
+                    .catch((error) => {
+                        digSettled = true;
+                        digError = error;
+                    });
+
+                // Stacked-spawner plugins may not turn block into air; avoid hanging forever on dig().
+                await Promise.race([
+                    digPromise,
+                    sleep(digActionTimeout)
+                ]);
+
+                if (!digSettled) {
+                    if (typeof this.bot.stopDigging === 'function') {
+                        try {
+                            this.bot.stopDigging();
+                        } catch (_) {
+                            // Ignore stopDigging transport errors and continue verification.
+                        }
+                    }
+                    if (postDigReleaseDelay > 0) {
+                        await sleep(postDigReleaseDelay);
+                    }
+                } else if (digError) {
+                    throw digError;
+                }
             } catch (error) {
                 if (attempt >= breakRetryCount) {
                     return { broken: false, reason: 'dig_error', error };
@@ -1283,6 +1315,8 @@ export class MinecraftBot {
             naturalLookStepDelay: Math.max(0, protectionConfig.naturalLookStepDelay ?? 20),
             naturalLookJitter: Math.max(0, protectionConfig.naturalLookJitter ?? 0.01),
             preDigPause: Math.max(0, protectionConfig.preDigPause ?? 35),
+            digActionTimeout: Math.max(150, protectionConfig.digActionTimeout ?? 650),
+            postDigReleaseDelay: Math.max(0, protectionConfig.postDigReleaseDelay ?? 25),
             blockGoneStableMs: Math.max(0, protectionConfig.blockGoneStableMs ?? 500),
             blockGoneRecheckInterval: Math.max(20, protectionConfig.blockGoneRecheckInterval ?? 100)
         };
@@ -1455,6 +1489,9 @@ export class MinecraftBot {
                                 notify(progressMsg);
                             } else {
                                 noGainStreak++;
+                                if (noGainStreak % 10 === 0) {
+                                    logger.warn(`[Spawner] Slot ${this.slot}: hedefte ilerleme yok x${noGainStreak} (${pos.x},${pos.y},${pos.z})`);
+                                }
                             }
 
                             if (stillSameBlock) {
@@ -1478,6 +1515,9 @@ export class MinecraftBot {
                             breakResult.reason === 'dig_error'
                         ) {
                             noGainStreak++;
+                            if (noGainStreak % 10 === 0) {
+                                logger.warn(`[Spawner] Slot ${this.slot}: no-gain x${noGainStreak} reason=${breakResult.reason} (${pos.x},${pos.y},${pos.z})`);
+                            }
                             if ((Date.now() - targetLastGainAt) >= stackedExhaustionIdleMs) {
                                 logger.warn(`Slot ${this.slot}: ${pos} target stalled for too long, moving on.`);
                                 break;
