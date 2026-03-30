@@ -816,7 +816,7 @@ export class MinecraftBot {
         }
 
         const runTick = async () => {
-            if (!this.bot || this.status !== 'online' || this.isPaused || this.isEating) {
+            if (!this.bot || this.status !== 'online' || this.isPaused || this.isEating || this._protectionRunning) {
                 this.antiAfkInterval = setTimeout(runTick, 10000);
                 return;
             }
@@ -886,7 +886,7 @@ export class MinecraftBot {
         const checkFood = async () => {
             let nextDelay = checkInterval + (this.slot * 200); // Slotlar arası kaydırma
 
-            if (!this.bot || this.status !== 'online' || this.isPaused) {
+            if (!this.bot || this.status !== 'online' || this.isPaused || this._protectionRunning) {
                 this.autoEatTimeout = setTimeout(checkFood, checkInterval);
                 return;
             }
@@ -1120,6 +1120,8 @@ export class MinecraftBot {
         const naturalLookJitter = Math.max(0, options.naturalLookJitter ?? 0.01);
         const preDigPause = Math.max(0, options.preDigPause ?? 35);
         const skipLook = options.skipLook === true;
+        const alwaysRealignAim = options.alwaysRealignAim !== false;
+        const forceLookForDig = options.forceLookForDig !== false;
         const blockGoneStableMs = Math.max(0, options.blockGoneStableMs ?? 500);
         const blockGoneRecheckInterval = Math.max(20, options.blockGoneRecheckInterval ?? 100);
 
@@ -1140,16 +1142,25 @@ export class MinecraftBot {
             const spawnerBefore = this.getSpawnerItemCount();
 
             try {
-                if (!skipLook) {
-                    await this.naturalLookAtBlock(pos, {
-                        naturalLookEnabled,
-                        naturalLookSteps,
-                        naturalLookStepDelay,
-                        naturalLookJitter,
-                        preDigPause
-                    });
+                const digTarget = pos.offset(0.5, 0.5, 0.5);
+                if (!skipLook || alwaysRealignAim) {
+                    if (skipLook && alwaysRealignAim) {
+                        // Re-aim every swing so stacked-spawner plugins treat each click as valid.
+                        await this.bot.lookAt(digTarget, false);
+                        if (preDigPause > 0) {
+                            await sleep(Math.min(preDigPause, 20));
+                        }
+                    } else {
+                        await this.naturalLookAtBlock(pos, {
+                            naturalLookEnabled,
+                            naturalLookSteps,
+                            naturalLookStepDelay,
+                            naturalLookJitter,
+                            preDigPause
+                        });
+                    }
                 }
-                await this.bot.dig(block, false);
+                await this.bot.dig(block, forceLookForDig);
             } catch (error) {
                 if (attempt >= breakRetryCount) {
                     return { broken: false, reason: 'dig_error', error };
@@ -1414,9 +1425,16 @@ export class MinecraftBot {
 
                         missingSince = null;
 
+                        const quickFollowUpSwing = hasAimedAtTarget;
                         const breakResult = await this.breakBlockWithVerification(pos, blockName, {
                             ...breakOptions,
-                            skipLook: hasAimedAtTarget
+                            skipLook: quickFollowUpSwing,
+                            alwaysRealignAim: true,
+                            forceLookForDig: true,
+                            naturalLookSteps: quickFollowUpSwing ? 1 : breakOptions.naturalLookSteps,
+                            naturalLookStepDelay: quickFollowUpSwing ? 0 : breakOptions.naturalLookStepDelay,
+                            naturalLookJitter: quickFollowUpSwing ? 0.004 : breakOptions.naturalLookJitter,
+                            preDigPause: quickFollowUpSwing ? Math.min(12, breakOptions.preDigPause) : breakOptions.preDigPause
                         });
                         hasAimedAtTarget = true;
                         if (breakResult.broken) {
