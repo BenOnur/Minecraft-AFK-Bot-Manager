@@ -85,7 +85,7 @@
             "preDigPause": 35,
             "packetDigEnabled": true,
             "packetDigPulseMs": 120,
-            "packetDigRestartMs": 420,
+            "packetDigRestartMs": 0,
             "digActionTimeout": 4500,
             "blockGoneStableMs": 500,
             "blockGoneRecheckInterval": 100,

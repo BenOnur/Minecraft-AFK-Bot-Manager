@@ -1092,7 +1092,7 @@ export class MinecraftBot {
 
         const holdMs = Math.max(250, options.digActionTimeout ?? 1200);
         const pulseMs = Math.max(45, options.packetDigPulseMs ?? 120);
-        const restartMs = Math.max(pulseMs, options.packetDigRestartMs ?? 420);
+        const restartMs = Math.max(0, options.packetDigRestartMs ?? 0);
         const location = {
             x: Math.floor(Number(pos.x)),
             y: Math.floor(Number(pos.y)),
@@ -1128,6 +1128,7 @@ export class MinecraftBot {
 
             if ((Date.now() - lastRestartAt) >= restartMs) {
                 try {
+                    sendDigPacket(1);
                     sendDigPacket(0);
                 } catch (_) {
                     // ignore
@@ -1144,13 +1145,7 @@ export class MinecraftBot {
             // ignore
         }
 
-        await sleep(35);
-
-        try {
-            sendDigPacket(1);
-        } catch (_) {
-            // ignore
-        }
+        await sleep(90);
     }
 
     orderBlocksSequentially(blocks, startPos = null) {
@@ -1411,6 +1406,7 @@ export class MinecraftBot {
         const stackedNoGainRetryDelay = Math.min(1000, Math.max(100, protectionConfig.stackedNoGainRetryDelay ?? 350));
         const stackedNoGainBackoffAfter = Math.max(8, protectionConfig.stackedNoGainBackoffAfter ?? 8);
         const randomBreakIntervalMaxMs = Math.min(800, Math.max(0, protectionConfig.randomBreakIntervalMaxMs ?? 800));
+        const packetDigEnabled = protectionConfig.packetDigEnabled !== false;
         const hasSavedAfkTargets = Array.isArray(this.afkProfile?.spawners) && this.afkProfile.spawners.length > 0;
 
         const configuredInventoryConfirmTimeout =
@@ -1421,7 +1417,7 @@ export class MinecraftBot {
         const breakOptions = {
             breakDelay: Math.max(0, protectionConfig.breakDelay ?? 0),
             verifyDelay: Math.max(0, protectionConfig.verifyDelay ?? 80),
-            breakRetryCount: Math.max(0, protectionConfig.breakRetryCount ?? 1),
+            breakRetryCount: packetDigEnabled ? 0 : Math.max(0, protectionConfig.breakRetryCount ?? 1),
             breakRetryDelay: Math.max(0, protectionConfig.breakRetryDelay ?? 100),
             // Keep normal hit loop fast; occasional deep-probe is handled per-attempt below.
             inventoryConfirmTimeout: Math.min(1500, Math.max(350, configuredInventoryConfirmTimeout)),
@@ -1435,9 +1431,9 @@ export class MinecraftBot {
             naturalLookStepDelay: Math.max(0, protectionConfig.naturalLookStepDelay ?? 20),
             naturalLookJitter: Math.max(0, protectionConfig.naturalLookJitter ?? 0.01),
             preDigPause: Math.max(0, protectionConfig.preDigPause ?? 35),
-            packetDigEnabled: protectionConfig.packetDigEnabled !== false,
+            packetDigEnabled,
             packetDigPulseMs: Math.max(45, protectionConfig.packetDigPulseMs ?? 120),
-            packetDigRestartMs: Math.max(90, protectionConfig.packetDigRestartMs ?? 420),
+            packetDigRestartMs: Math.max(0, protectionConfig.packetDigRestartMs ?? 0),
             // Hold left-click long enough for stacked-spawner plugin break windows.
             digActionTimeout: Math.max(1000, protectionConfig.digActionTimeout ?? 4500),
             postDigReleaseDelay: Math.max(0, protectionConfig.postDigReleaseDelay ?? 25),
