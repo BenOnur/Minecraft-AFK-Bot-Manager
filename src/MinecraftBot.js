@@ -118,6 +118,7 @@ export class MinecraftBot {
         this.isPaused = false;
         this.isConnecting = false;
         this.isManuallyStopped = false;
+        this.manualStopRequested = false;
         this.reconnectAttempts = 0;
         this.alreadyOnlineRetries = 0;
         this.sameKickStreak = 0;
@@ -169,6 +170,11 @@ export class MinecraftBot {
     }
 
     async start(startReason = 'manual') {
+        if (startReason === 'reconnect' && this.manualStopRequested) {
+            logger.info(`Slot ${this.slot}: Reconnect start blocked - bot was manually stopped`);
+            return false;
+        }
+
         if (this.isConnecting) {
             logger.warn(`Slot ${this.slot}: Already connecting`);
             return false;
@@ -185,6 +191,11 @@ export class MinecraftBot {
             this.reconnectTimeout = null;
         }
         this.reconnectScheduleId++;
+
+        const manualStartReasons = new Set(['manual', 'restart', 'startup', 'account-add', 'account-add-finalize']);
+        if (manualStartReasons.has(startReason)) {
+            this.manualStopRequested = false;
+        }
 
         this.isConnecting = true;
         this.isManuallyStopped = false;
@@ -563,7 +574,7 @@ export class MinecraftBot {
                 this.status = statusBeforeCleanup;
             }
 
-            if (this.config.settings.autoReconnect && !this.isPaused) {
+            if (this.config.settings.autoReconnect && !this.isPaused && !this.manualStopRequested) {
                 this.handleReconnect();
             }
         });
@@ -1613,6 +1624,11 @@ export class MinecraftBot {
     }
 
     handleReconnect() {
+        if (this.manualStopRequested) {
+            logger.info(`Slot ${this.slot}: Reconnect skipped - manual stop lock is active`);
+            return;
+        }
+
         if (this.isManuallyStopped) {
             logger.info(`Slot ${this.slot}: Reconnect skipped - bot was manually stopped`);
             return;
@@ -1663,6 +1679,7 @@ export class MinecraftBot {
     }
 
     async stop() {
+        this.manualStopRequested = true;
         this.isManuallyStopped = true;
         this.reconnectScheduleId++;
 
