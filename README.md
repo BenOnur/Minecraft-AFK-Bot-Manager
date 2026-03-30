@@ -255,6 +255,7 @@ Koruma acik oldugunda:
 - Surekli kirma hissi icin varsayilanlar hizlandirildi: `inventoryConfirmPollInterval=100`, `stackedFastGraceMs=900`, `stackedNoGainRetryDelay=350`, `stackedNoGainBackoffAfter=8`.
 - Stacked spawner kiriminda M1 hold suresi adaptif uygulanir; hizli denemelerden sonra gain yoksa `settings.protection.digActionTimeout` (onerilen `4500ms`) degerine kadar kademeli uzatilir.
 - Kirma denemelerinde `raycast` yuz secimi ve zorunlu hedefe bakis kullanilarak anti-cheat uyumlulugu artirildi.
+- Varsayilan olarak packet tabanli kazma aktif: `packetDigEnabled=true`, hiz ayarlari `packetDigPulseMs` ve `packetDigRestartMs`.
 - Kirma denemeleri arasinda insan-benzeri rastgele gecikme vardir; `settings.protection.randomBreakIntervalMaxMs` en fazla `800ms` olacak sekilde uygulanir.
 - Koruma sirasinda her basarili spawner kiriminda Telegram/Discord bildirim gider; tum hedefler temizlenince `/spawn 1-5` oncesi tamamlandi bildirimi gonderilir.
 - Slot AFK anchor'dan 20+ blok uzaklasirsa lobby kabul edilir.

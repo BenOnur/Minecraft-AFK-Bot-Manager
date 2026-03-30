@@ -1059,6 +1059,100 @@ export class MinecraftBot {
         if (preDigPause > 0) await sleep(preDigPause);
     }
 
+    getDigFaceForPosition(pos) {
+        if (!this.bot?.entity?.position || !pos?.offset) {
+            return 1; // top
+        }
+
+        const eyePos = this.bot.entity.position.offset(0, this.bot.entity.height || 1.62, 0);
+        const center = pos.offset(0.5, 0.5, 0.5);
+        const dx = center.x - eyePos.x;
+        const dy = center.y - eyePos.y;
+        const dz = center.z - eyePos.z;
+
+        const ax = Math.abs(dx);
+        const ay = Math.abs(dy);
+        const az = Math.abs(dz);
+
+        if (ay >= ax && ay >= az) {
+            return dy > 0 ? 0 : 1; // bottom : top
+        }
+
+        if (ax >= az) {
+            return dx > 0 ? 4 : 5; // west : east
+        }
+
+        return dz > 0 ? 2 : 3; // north : south
+    }
+
+    async performPacketDigCycle(pos, options = {}) {
+        if (!this.bot?._client) {
+            return;
+        }
+
+        const holdMs = Math.max(250, options.digActionTimeout ?? 1200);
+        const pulseMs = Math.max(45, options.packetDigPulseMs ?? 120);
+        const restartMs = Math.max(pulseMs, options.packetDigRestartMs ?? 420);
+        const location = {
+            x: Math.floor(Number(pos.x)),
+            y: Math.floor(Number(pos.y)),
+            z: Math.floor(Number(pos.z))
+        };
+        const face = this.getDigFaceForPosition(pos);
+
+        const sendDigPacket = (status) => {
+            this.bot._client.write('block_dig', { status, location, face });
+        };
+
+        try {
+            // Clear stale state first.
+            sendDigPacket(1);
+        } catch (_) {
+            // ignore
+        }
+
+        sendDigPacket(0);
+        let lastRestartAt = Date.now();
+        const startedAt = Date.now();
+
+        while ((Date.now() - startedAt) <= holdMs) {
+            if (!this.bot || this.status !== 'online') {
+                break;
+            }
+
+            try {
+                this.bot.swingArm('right', true);
+            } catch (_) {
+                // ignore
+            }
+
+            if ((Date.now() - lastRestartAt) >= restartMs) {
+                try {
+                    sendDigPacket(0);
+                } catch (_) {
+                    // ignore
+                }
+                lastRestartAt = Date.now();
+            }
+
+            await sleep(pulseMs);
+        }
+
+        try {
+            sendDigPacket(2);
+        } catch (_) {
+            // ignore
+        }
+
+        await sleep(35);
+
+        try {
+            sendDigPacket(1);
+        } catch (_) {
+            // ignore
+        }
+    }
+
     orderBlocksSequentially(blocks, startPos = null) {
         if (!Array.isArray(blocks) || blocks.length <= 1) {
             return blocks || [];
@@ -1123,6 +1217,9 @@ export class MinecraftBot {
         const alwaysRealignAim = options.alwaysRealignAim !== false;
         const forceLookForDig = options.forceLookForDig !== false;
         const digFace = options.digFace ?? 'raycast';
+        const packetDigEnabled = options.packetDigEnabled !== false;
+        const packetDigPulseMs = Math.max(45, options.packetDigPulseMs ?? 120);
+        const packetDigRestartMs = Math.max(packetDigPulseMs, options.packetDigRestartMs ?? 420);
         const digActionTimeout = Math.max(150, options.digActionTimeout ?? 650);
         const postDigReleaseDelay = Math.max(0, options.postDigReleaseDelay ?? 25);
         const blockGoneStableMs = Math.max(0, options.blockGoneStableMs ?? 500);
@@ -1178,27 +1275,35 @@ export class MinecraftBot {
                         });
                     }
                 }
-                digSettled = false;
-                let digError = null;
-                const digPromise = this.bot.dig(block, forceLookForDig, digFace)
-                    .then(() => {
-                        digSettled = true;
-                    })
-                    .catch((error) => {
-                        digSettled = true;
-                        digError = error;
+                if (packetDigEnabled) {
+                    await this.performPacketDigCycle(pos, {
+                        digActionTimeout,
+                        packetDigPulseMs,
+                        packetDigRestartMs
                     });
+                } else {
+                    digSettled = false;
+                    let digError = null;
+                    const digPromise = this.bot.dig(block, forceLookForDig, digFace)
+                        .then(() => {
+                            digSettled = true;
+                        })
+                        .catch((error) => {
+                            digSettled = true;
+                            digError = error;
+                        });
 
-                // Stacked-spawner plugins may not turn block into air; avoid hanging forever on dig().
-                await Promise.race([
-                    digPromise,
-                    sleep(digActionTimeout)
-                ]);
+                    // Stacked-spawner plugins may not turn block into air; avoid hanging forever on dig().
+                    await Promise.race([
+                        digPromise,
+                        sleep(digActionTimeout)
+                    ]);
 
-                if (!digSettled) {
-                    await releaseDigIfPending(true);
-                } else if (digError) {
-                    throw digError;
+                    if (!digSettled) {
+                        await releaseDigIfPending(true);
+                    } else if (digError) {
+                        throw digError;
+                    }
                 }
             } catch (error) {
                 await releaseDigIfPending(true);
@@ -1330,6 +1435,9 @@ export class MinecraftBot {
             naturalLookStepDelay: Math.max(0, protectionConfig.naturalLookStepDelay ?? 20),
             naturalLookJitter: Math.max(0, protectionConfig.naturalLookJitter ?? 0.01),
             preDigPause: Math.max(0, protectionConfig.preDigPause ?? 35),
+            packetDigEnabled: protectionConfig.packetDigEnabled !== false,
+            packetDigPulseMs: Math.max(45, protectionConfig.packetDigPulseMs ?? 120),
+            packetDigRestartMs: Math.max(90, protectionConfig.packetDigRestartMs ?? 420),
             // Hold left-click long enough for stacked-spawner plugin break windows.
             digActionTimeout: Math.max(1000, protectionConfig.digActionTimeout ?? 4500),
             postDigReleaseDelay: Math.max(0, protectionConfig.postDigReleaseDelay ?? 25),
@@ -1494,6 +1602,9 @@ export class MinecraftBot {
                         }
 
                         missingSince = null;
+                        if (noGainStreak === 0 || (noGainStreak % 4) === 0) {
+                            await this.equipPickaxe();
+                        }
 
                         const quickFollowUpSwing = hasAimedAtTarget;
                         const shouldDeepProbe = noGainStreak > 0 && (noGainStreak % 8 === 0);
