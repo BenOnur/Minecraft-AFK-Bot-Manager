@@ -1261,6 +1261,7 @@ export class MinecraftBot {
         const stackedNoGainBackoffAfter = Math.max(8, protectionConfig.stackedNoGainBackoffAfter ?? 8);
         const randomBreakIntervalMaxMs = Math.min(800, Math.max(0, protectionConfig.randomBreakIntervalMaxMs ?? 800));
         const packetDigEnabled = protectionConfig.packetDigEnabled !== false;
+        let packetDigRuntimeEnabled = packetDigEnabled;
         const hasSavedAfkTargets = Array.isArray(this.afkProfile?.spawners) && this.afkProfile.spawners.length > 0;
 
         const configuredInventoryConfirmTimeout =
@@ -1460,20 +1461,21 @@ export class MinecraftBot {
                             await this.equipPickaxe();
                         }
 
-                        const quickFollowUpSwing = packetDigEnabled ? false : hasAimedAtTarget;
+                        const activePacketDig = packetDigRuntimeEnabled;
+                        const quickFollowUpSwing = activePacketDig ? false : hasAimedAtTarget;
                         const shouldDeepProbe = noGainStreak > 0 && (noGainStreak % 8 === 0);
-                        const adaptiveConfirmTimeout = packetDigEnabled
+                        const adaptiveConfirmTimeout = activePacketDig
                             ? Math.max(9000, breakOptions.inventoryConfirmTimeout)
                             : (shouldDeepProbe
                                 ? Math.max(2500, breakOptions.inventoryConfirmTimeout)
                                 : breakOptions.inventoryConfirmTimeout);
-                        const maxDigHoldMs = packetDigEnabled
+                        const maxDigHoldMs = activePacketDig
                             ? Math.max(8000, Math.min(15000, breakOptions.digActionTimeout))
                             : Math.max(3000, Math.min(7000, breakOptions.digActionTimeout));
                         const mediumDigHoldMs = Math.max(2400, Math.min(maxDigHoldMs, 3400));
                         const fastDigHoldMs = Math.max(1800, Math.min(maxDigHoldMs, 2600));
                         let adaptiveDigTimeout = fastDigHoldMs;
-                        if (packetDigEnabled) {
+                        if (activePacketDig) {
                             adaptiveDigTimeout = maxDigHoldMs;
                             if (noGainStreak >= 4) {
                                 adaptiveDigTimeout = Math.min(17000, maxDigHoldMs + 2000);
@@ -1495,10 +1497,12 @@ export class MinecraftBot {
 
                         const breakResult = await this.breakBlockWithVerification(pos, blockName, {
                             ...breakOptions,
+                            packetDigEnabled: activePacketDig,
+                            breakRetryCount: activePacketDig ? 0 : Math.max(2, breakOptions.breakRetryCount),
                             skipLook: quickFollowUpSwing,
                             alwaysRealignAim: true,
                             forceLookForDig: true,
-                            digFace: 'raycast',
+                            digFace: activePacketDig ? 'raycast' : 'auto',
                             // Stacked-spawner servers often need longer sustained hold; avoid early fast-exit.
                             stackedFastMode: false,
                             inventoryConfirmTimeout: adaptiveConfirmTimeout,
@@ -1536,6 +1540,11 @@ export class MinecraftBot {
                                 if (noGainStreak % 10 === 0) {
                                     logger.warn(`[Spawner] Slot ${this.slot}: hedefte ilerleme yok x${noGainStreak} (${pos.x},${pos.y},${pos.z})`);
                                 }
+                                if (packetDigRuntimeEnabled && noGainStreak >= 6) {
+                                    packetDigRuntimeEnabled = false;
+                                    noGainStreak = 0;
+                                    logger.warn(`[Spawner] Slot ${this.slot}: Packet dig ilerleme saglamadi, vanilla dig fallback moduna geciliyor.`);
+                                }
                             }
 
                             if (stillSameBlock) {
@@ -1561,6 +1570,11 @@ export class MinecraftBot {
                             noGainStreak++;
                             if (noGainStreak % 10 === 0) {
                                 logger.warn(`[Spawner] Slot ${this.slot}: no-gain x${noGainStreak} reason=${breakResult.reason} (${pos.x},${pos.y},${pos.z})`);
+                            }
+                            if (packetDigRuntimeEnabled && noGainStreak >= 6) {
+                                packetDigRuntimeEnabled = false;
+                                noGainStreak = 0;
+                                logger.warn(`[Spawner] Slot ${this.slot}: Packet dig reason=${breakResult.reason}. Vanilla dig fallback aktif.`);
                             }
                             if ((Date.now() - targetLastGainAt) >= stackedExhaustionIdleMs) {
                                 logger.warn(`Slot ${this.slot}: ${pos} target stalled for too long, moving on.`);
