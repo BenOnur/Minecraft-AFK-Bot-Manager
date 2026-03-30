@@ -74,7 +74,7 @@ function normalizeConfig(config) {
         proximityAlertEnabled: true,
         alertDistance: 96,
         alertCooldown: 300000,
-        lobbyReturnCommand: '/home sp1'
+        lobbyReturnCommand: '/home sp'
     };
 
     for (const [key, value] of Object.entries(settingDefaults)) {

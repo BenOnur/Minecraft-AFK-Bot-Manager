@@ -426,6 +426,55 @@ export class BotManager {
         return Array.from(this.bots.keys());
     }
 
+    async setAfkProfile(slot) {
+        const slotNum = parseInt(slot, 10);
+        if (isNaN(slotNum)) {
+            return { success: false, message: 'Geçersiz slot numarası' };
+        }
+
+        const bot = this.bots.get(slotNum);
+        if (!bot) {
+            return { success: false, message: `Slot ${slotNum} bulunamadı` };
+        }
+
+        const accountConfig = this.config.minecraft.accounts.find(acc => acc.slot === slotNum);
+        if (!accountConfig) {
+            return { success: false, message: `Slot ${slotNum} config içinde bulunamadı` };
+        }
+
+        let captureResult;
+        try {
+            captureResult = await bot.captureAfkProfile();
+        } catch (error) {
+            return { success: false, message: `AFK konumu kaydedilemedi: ${error.message}` };
+        }
+
+        if (!captureResult?.success) {
+            return captureResult || { success: false, message: 'AFK konumu kaydedilemedi' };
+        }
+
+        accountConfig.afkProfile = captureResult.afkProfile;
+        bot.accountConfig.afkProfile = captureResult.afkProfile;
+        bot.setAfkProfile(captureResult.afkProfile);
+
+        const saved = await this.saveConfig();
+        if (!saved) {
+            return { success: false, message: 'AFK konumu kaydedildi ancak config dosyasına yazılamadı.' };
+        }
+
+        const anchor = captureResult.afkProfile.anchor;
+        const spawnerCount = captureResult.afkProfile.spawners.length;
+        return {
+            success: true,
+            message: `🎯 Slot ${slotNum} AFK noktası kaydedildi: \`${anchor.x.toFixed(2)}, ${anchor.y.toFixed(2)}, ${anchor.z.toFixed(2)}\` | 🧱 Spawner: **${spawnerCount}**`,
+            data: {
+                slot: slotNum,
+                afkProfile: captureResult.afkProfile,
+                spawnerCount
+            }
+        };
+    }
+
     async saveConfig() {
         try {
             const configPath = path.resolve('config.json');

@@ -146,6 +146,11 @@ export class MinecraftBot {
         this.inventoryAlertSent = false;
         this.toolAlertSent = new Set();
         this.lastProtectionTargetPos = null;
+        this.afkDriftInterval = null;
+        this.afkProfile = this.normalizeAfkProfile(this.accountConfig.afkProfile);
+        if (this.afkProfile) {
+            this.accountConfig.afkProfile = this.afkProfile;
+        }
 
         // Stats tracking
         this.stats = {
@@ -217,6 +222,257 @@ export class MinecraftBot {
         }
     }
 
+    normalizeAfkProfile(afkProfile) {
+        if (!afkProfile || typeof afkProfile !== 'object') {
+            return null;
+        }
+
+        const anchorX = Number(afkProfile?.anchor?.x);
+        const anchorY = Number(afkProfile?.anchor?.y);
+        const anchorZ = Number(afkProfile?.anchor?.z);
+        if (!Number.isFinite(anchorX) || !Number.isFinite(anchorY) || !Number.isFinite(anchorZ)) {
+            return null;
+        }
+
+        const rawSpawners = Array.isArray(afkProfile.spawners) ? afkProfile.spawners : [];
+        const unique = new Set();
+        const spawners = [];
+
+        for (const spawner of rawSpawners) {
+            const x = Math.round(Number(spawner?.x));
+            const y = Math.round(Number(spawner?.y));
+            const z = Math.round(Number(spawner?.z));
+            if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) {
+                continue;
+            }
+
+            const key = `${x}:${y}:${z}`;
+            if (unique.has(key)) {
+                continue;
+            }
+            unique.add(key);
+            spawners.push({ x, y, z });
+        }
+
+        return {
+            anchor: { x: anchorX, y: anchorY, z: anchorZ },
+            spawners,
+            updatedAt: typeof afkProfile.updatedAt === 'string'
+                ? afkProfile.updatedAt
+                : new Date().toISOString()
+        };
+    }
+
+    setAfkProfile(afkProfile) {
+        const normalized = this.normalizeAfkProfile(afkProfile);
+        this.afkProfile = normalized;
+
+        if (normalized) {
+            this.accountConfig.afkProfile = normalized;
+        } else {
+            delete this.accountConfig.afkProfile;
+        }
+
+        return this.afkProfile;
+    }
+
+    getAfkAnchor() {
+        if (!this.afkProfile?.anchor) {
+            return null;
+        }
+
+        const { x, y, z } = this.afkProfile.anchor;
+        if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) {
+            return null;
+        }
+
+        return { x, y, z };
+    }
+
+    getHomeReferencePosition() {
+        const anchor = this.getAfkAnchor();
+        if (anchor) {
+            return anchor;
+        }
+
+        if (!this.lastPosition) {
+            return null;
+        }
+
+        return {
+            x: this.lastPosition.x,
+            y: this.lastPosition.y,
+            z: this.lastPosition.z
+        };
+    }
+
+    getDistanceFromReference(referencePos, currentPos) {
+        if (!referencePos || !currentPos) {
+            return null;
+        }
+
+        const dx = currentPos.x - referencePos.x;
+        const dy = currentPos.y - referencePos.y;
+        const dz = currentPos.z - referencePos.z;
+        return Math.sqrt((dx * dx) + (dy * dy) + (dz * dz));
+    }
+
+    getDistanceToHome(currentPos) {
+        const referencePos = this.getHomeReferencePosition();
+        return this.getDistanceFromReference(referencePos, currentPos);
+    }
+
+    getLobbyReturnThreshold() {
+        return this.getAfkAnchor() ? 20 : 50;
+    }
+
+    toBlockVec3(pos) {
+        if (!this.bot?.entity?.position?.constructor) {
+            return null;
+        }
+
+        const x = Math.round(Number(pos?.x));
+        const y = Math.round(Number(pos?.y));
+        const z = Math.round(Number(pos?.z));
+        if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) {
+            return null;
+        }
+
+        return new this.bot.entity.position.constructor(x, y, z);
+    }
+
+    getSavedSpawnerTargets(blockName, maxBlocksPerScan, radius) {
+        if (!this.bot || !this.bot.entity) {
+            return [];
+        }
+
+        const saved = this.afkProfile?.spawners;
+        if (!Array.isArray(saved) || saved.length === 0) {
+            return [];
+        }
+
+        const currentPos = this.bot.entity.position;
+        const maxDistanceSq = radius * radius;
+        const targets = [];
+
+        for (const savedPos of saved) {
+            if (targets.length >= maxBlocksPerScan) {
+                break;
+            }
+
+            const pos = this.toBlockVec3(savedPos);
+            if (!pos) {
+                continue;
+            }
+
+            if (currentPos.distanceSquared(pos) > maxDistanceSq) {
+                continue;
+            }
+
+            const block = this.bot.blockAt(pos);
+            if (block && block.name === blockName) {
+                targets.push(pos);
+            }
+        }
+
+        return targets;
+    }
+
+    async captureAfkProfile() {
+        if (!this.bot || this.status !== 'online' || !this.bot.entity) {
+            return { success: false, message: 'Bot online değil veya hazır değil.' };
+        }
+
+        const anchorPos = this.bot.entity.position;
+        const protectionConfig = this.config.settings.protection || {};
+        const blockName = protectionConfig.blockType || 'spawner';
+        const radius = protectionConfig.radius || 64;
+        const maxBlocksPerScan = Math.max(1, protectionConfig.maxBlocksPerScan ?? 256);
+
+        const spawnerPositions = this.bot.findBlocks({
+            matching: (block) => block.name === blockName,
+            maxDistance: radius,
+            count: maxBlocksPerScan
+        });
+
+        if (anchorPos && spawnerPositions.length > 1) {
+            spawnerPositions.sort((a, b) => anchorPos.distanceSquared(a) - anchorPos.distanceSquared(b));
+        }
+
+        const nextProfile = {
+            anchor: {
+                x: Number(anchorPos.x),
+                y: Number(anchorPos.y),
+                z: Number(anchorPos.z)
+            },
+            spawners: spawnerPositions.map(pos => ({
+                x: Math.round(pos.x),
+                y: Math.round(pos.y),
+                z: Math.round(pos.z)
+            })),
+            updatedAt: new Date().toISOString()
+        };
+
+        this.setAfkProfile(nextProfile);
+        this.lastPosition = this.bot.entity.position.clone();
+
+        return {
+            success: true,
+            afkProfile: this.afkProfile,
+            spawnerCount: this.afkProfile?.spawners?.length || 0,
+            blockType: blockName,
+            radius
+        };
+    }
+
+    checkAfkAnchorDrift(source = 'runtime') {
+        if (!this.bot || !this.bot.entity) {
+            return false;
+        }
+
+        const anchor = this.getAfkAnchor();
+        if (!anchor) {
+            return false;
+        }
+
+        const distance = this.getDistanceFromReference(anchor, this.bot.entity.position);
+        if (distance === null) {
+            return false;
+        }
+
+        if (!this.isInLobby && distance > 20) {
+            logger.warn(`Slot ${this.slot}: AFK anchor drift (${Math.round(distance)} blocks) via ${source}. Entering lobby mode.`);
+            this.enterLobbyMode();
+            return true;
+        }
+
+        if (this.isInLobby && distance <= 20) {
+            logger.info(`Slot ${this.slot}: AFK anchor reached again (${Math.round(distance)} blocks) via ${source}. Exiting lobby mode.`);
+            this.exitLobbyMode();
+            return true;
+        }
+
+        return false;
+    }
+
+    startAfkDriftCheck() {
+        this.stopAfkDriftCheck();
+
+        this.afkDriftInterval = setInterval(() => {
+            if (!this.bot || this.status !== 'online') {
+                return;
+            }
+            this.checkAfkAnchorDrift('interval');
+        }, 5000);
+    }
+
+    stopAfkDriftCheck() {
+        if (this.afkDriftInterval) {
+            clearInterval(this.afkDriftInterval);
+            this.afkDriftInterval = null;
+        }
+    }
+
     setupEventHandlers() {
         this.bot.on('login', () => {
             logger.info(`Slot ${this.slot}: Logged in successfully`);
@@ -250,6 +506,7 @@ export class MinecraftBot {
 
             this.startAutoEat();
             this.startInventoryMonitor();
+            this.startAfkDriftCheck();
         });
 
         this.bot.on('spawn', () => {
@@ -259,11 +516,15 @@ export class MinecraftBot {
             this.bot.setControlState('sneak', true);
 
             // Lobby/maintenance detection: if position changed drastically
-            if (this.lastPosition && this.bot && this.bot.entity) {
-                const currentPos = this.bot.entity.position;
-                const distance = this.lastPosition.distanceTo(currentPos);
+            if (this.checkAfkAnchorDrift('spawn')) {
+                return;
+            }
 
-                if (distance > 200 && !this.isInLobby) {
+            if (this.bot && this.bot.entity) {
+                const currentPos = this.bot.entity.position;
+                const distance = this.getDistanceToHome(currentPos);
+
+                if (distance !== null && distance > 200 && !this.isInLobby) {
                     logger.warn(`Slot ${this.slot}: 🏢 LOBBY DETECTED! Teleported ${Math.round(distance)} blocks.`);
                     this.enterLobbyMode();
                     return;
@@ -271,11 +532,11 @@ export class MinecraftBot {
             }
 
             // If returning from lobby: check if back near original position
-            if (this.isInLobby && this.lastPosition && this.bot && this.bot.entity) {
+            if (this.bot && this.bot.entity && this.isInLobby) {
                 const currentPos = this.bot.entity.position;
-                const distToHome = this.lastPosition.distanceTo(currentPos);
+                const distToHome = this.getDistanceToHome(currentPos);
 
-                if (distToHome < 50) {
+                if (distToHome !== null && distToHome <= this.getLobbyReturnThreshold()) {
                     this.exitLobbyMode();
                 }
             }
@@ -388,20 +649,28 @@ export class MinecraftBot {
                 if (!this.isInLobby) {
                     // Verify with position check before entering lobby mode
                     setTimeout(() => {
-                        if (this.bot && this.bot.entity && this.lastPosition && !this.isInLobby) {
-                            const dist = this.bot.entity.position.distanceTo(this.lastPosition);
-                            if (dist > 200) {
+                        if (this.bot && this.bot.entity && !this.isInLobby) {
+                            if (this.checkAfkAnchorDrift('chat')) {
+                                return;
+                            }
+
+                            const dist = this.getDistanceToHome(this.bot.entity.position);
+                            if (dist !== null && dist > 200) {
                                 logger.warn(`Slot ${this.slot}: 🏢 TELEPORT DETECTED via chat: "${message}" (${Math.round(dist)} blocks). Entering lobby mode.`);
                                 this.enterLobbyMode();
                             }
                         }
                     }, 1000);
                 } else {
-                    // Already in lobby → might be returning home via /home sp1
+                    // Already in lobby → might be returning home via /home sp
                     setTimeout(() => {
-                        if (this.bot && this.bot.entity && this.lastPosition && this.isInLobby) {
-                            const dist = this.bot.entity.position.distanceTo(this.lastPosition);
-                            if (dist < 50) {
+                        if (this.bot && this.bot.entity && this.isInLobby) {
+                            if (this.checkAfkAnchorDrift('chat-return')) {
+                                return;
+                            }
+
+                            const dist = this.getDistanceToHome(this.bot.entity.position);
+                            if (dist !== null && dist <= this.getLobbyReturnThreshold()) {
                                 this.exitLobbyMode();
                             }
                         }
@@ -412,27 +681,31 @@ export class MinecraftBot {
             // Improve detection for "Your region started back up"
             if (msg.includes('region started back up') || msg.includes('we will teleport you back')) {
                 logger.info(`Slot ${this.slot}: 🔄 Server region restarted! Teleport pending... Stopping lobby retry loops.`);
-                this.stopLobbyRetry(); // Stop spamming /home sp1 so we don't interfere with server teleport
+                this.stopLobbyRetry(); // Stop spamming /home sp so we don't interfere with server teleport
             }
         });
 
         this.bot.on('forcedMove', () => {
             // Standard Event: Forced Move (Teleport)
-            // This is more reliable than chat messages for detecting return from lobby
-            if (this.isInLobby && this.lastPosition && this.bot && this.bot.entity) {
-                const currentPos = this.bot.entity.position;
-                const distToHome = this.lastPosition.distanceTo(currentPos);
+            if (this.checkAfkAnchorDrift('forcedMove')) {
+                return;
+            }
 
-                if (distToHome < 50) {
+            // This is more reliable than chat messages for detecting return from lobby
+            if (this.bot && this.bot.entity && this.isInLobby) {
+                const currentPos = this.bot.entity.position;
+                const distToHome = this.getDistanceToHome(currentPos);
+
+                if (distToHome !== null && distToHome <= this.getLobbyReturnThreshold()) {
                     logger.info(`Slot ${this.slot}: ⚡ ForcedMove detected return to base (${Math.round(distToHome)} blocks away). Exiting lobby mode.`);
                     this.exitLobbyMode();
                 }
-            } else if (!this.isInLobby && this.lastPosition && this.bot && this.bot.entity) {
+            } else if (this.bot && this.bot.entity && !this.isInLobby) {
                 // Also check for unexpected teleports AWAY from base via forcedMove
                 const currentPos = this.bot.entity.position;
-                const dist = this.lastPosition.distanceTo(currentPos);
+                const dist = this.getDistanceToHome(currentPos);
 
-                if (dist > 200) {
+                if (dist !== null && dist > 200) {
                     logger.warn(`Slot ${this.slot}: ⚡ ForcedMove detected TELEPORT AWAY (${Math.round(dist)} blocks). Entering lobby mode.`);
                     this.enterLobbyMode();
                 }
@@ -503,8 +776,9 @@ export class MinecraftBot {
             }
 
             try {
+                const hasAfkAnchor = !!this.getAfkAnchor();
                 // 1. Rastgele Zıplama (%70 şans)
-                if (Math.random() > 0.3) {
+                if (!hasAfkAnchor && Math.random() > 0.3) {
                     this.bot.setControlState('jump', true);
                     setTimeout(() => {
                         if (this.bot) this.bot.setControlState('jump', false);
@@ -966,6 +1240,7 @@ export class MinecraftBot {
         this.bot.setControlState('sneak', true);
 
         let totalBroken = 0;
+        let completedByClearingTargets = false;
         // Loop: keep scanning and breaking until no spawners remain or inventory full
         while (this.bot && this.status === 'online') {
             if (this.isInLobby) {
@@ -982,12 +1257,15 @@ export class MinecraftBot {
                 break;
             }
 
-            // Scan for spawners
-            const blocks = this.bot.findBlocks({
-                matching: (block) => block.name === blockName,
-                maxDistance: radius,
-                count: maxBlocksPerScan
-            });
+            // Scan for spawners (prioritize /afkset saved coordinates first)
+            let blocks = this.getSavedSpawnerTargets(blockName, maxBlocksPerScan, radius);
+            if (blocks.length === 0) {
+                blocks = this.bot.findBlocks({
+                    matching: (block) => block.name === blockName,
+                    maxDistance: radius,
+                    count: maxBlocksPerScan
+                });
+            }
 
             if (this.bot?.entity?.position) {
                 const currentPos = this.bot.entity.position;
@@ -1003,7 +1281,8 @@ export class MinecraftBot {
                     return;
                 }
 
-                logger.info(`Slot ${this.slot}: All ${blockName}s destroyed (${totalBroken} total). Disconnecting.`);
+                logger.info(`Slot ${this.slot}: All ${blockName}s destroyed (${totalBroken} total). Preparing spawn retreat.`);
+                completedByClearingTargets = true;
                 break;
             }
 
@@ -1142,9 +1421,39 @@ export class MinecraftBot {
         this.lastProtectionTargetPos = null;
 
         // Only disconnect if we actually ran the logic and finished (not early returned)
+        if (completedByClearingTargets) {
+            logger.info(`Slot ${this.slot}: Protection complete. Retreating to random /spawn (1-5), then stopping in 10s.`);
+            try {
+                await this.retreatToRandomSpawnAndStop();
+            } finally {
+                this._protectionRunning = false;
+            }
+            return;
+        }
+
         logger.info(`Slot ${this.slot}: Protection protocol complete. Disconnecting.`);
         this._protectionRunning = false;
-        this.stop();
+        await this.stop();
+    }
+
+    async retreatToRandomSpawnAndStop() {
+        const spawnIndex = Math.floor(Math.random() * 5) + 1;
+        const spawnCommand = `/spawn ${spawnIndex}`;
+
+        if (this.bot && this.status === 'online') {
+            try {
+                this.bot.chat(spawnCommand);
+                logger.info(`Slot ${this.slot}: Sent ${spawnCommand}. Stopping in 10 seconds.`);
+            } catch (error) {
+                logger.warn(`Slot ${this.slot}: Failed to send ${spawnCommand}: ${error.message}`);
+            }
+        }
+
+        await sleep(10000);
+
+        if (this.bot) {
+            await this.stop();
+        }
     }
 
     toggleProtection(forceState = null) {
@@ -1160,16 +1469,33 @@ export class MinecraftBot {
     startLobbyRetry() {
         this.stopLobbyRetry();
 
-        logger.info(`Slot ${this.slot}: Starting lobby retry loop (every 30s with /home sp1)`);
+        const retryIntervalMs = 120000;
+        const returnCmd = this.config.settings.lobbyReturnCommand || '/home sp';
+        logger.info(`Slot ${this.slot}: Starting lobby retry loop (every ${Math.round(retryIntervalMs / 1000)}s with ${returnCmd})`);
 
-        const returnCmd = this.config.settings.lobbyReturnCommand || '/home sp1';
-
-        setTimeout(() => {
-            if (this.bot && this.isInLobby) {
-                this.bot.chat(returnCmd);
-                logger.info(`Slot ${this.slot}: Sent ${returnCmd} (initial attempt)`);
+        const sendReturnCommand = (reason = 'retry') => {
+            if (!this.bot || !this.isInLobby) {
+                return;
             }
-        }, 10000);
+
+            this.bot.chat(returnCmd);
+            logger.info(`Slot ${this.slot}: Sent ${returnCmd} (${reason})`);
+
+            // Fallback check: sometimes we might have already been teleported back but missed the event.
+            if (this.bot && this.bot.entity) {
+                if (this.checkAfkAnchorDrift('lobby-retry')) {
+                    return;
+                }
+
+                const distToHome = this.getDistanceToHome(this.bot.entity.position);
+                if (distToHome !== null && distToHome <= this.getLobbyReturnThreshold()) {
+                    logger.info(`Slot ${this.slot}: Lobby Retry Loop detected we are back at base (${Math.round(distToHome)}m). Exiting lobby mode.`);
+                    this.exitLobbyMode();
+                }
+            }
+        };
+
+        sendReturnCommand('initial');
 
         this.lobbyRetryInterval = setInterval(() => {
             if (!this.bot || !this.isInLobby) {
@@ -1177,20 +1503,8 @@ export class MinecraftBot {
                 return;
             }
 
-            logger.info(`Slot ${this.slot}: Retrying ${returnCmd}...`);
-            this.bot.chat(returnCmd);
-
-            // Fallback check: sometimes we might have already been teleported back but missed the event
-            if (this.bot && this.bot.entity && this.lastPosition) {
-                const currentPos = this.bot.entity.position;
-                const distToHome = this.lastPosition.distanceTo(currentPos);
-
-                if (distToHome < 50) {
-                    logger.info(`Slot ${this.slot}: 🔄 Lobby Retry Loop detected we are back at base (${Math.round(distToHome)}m). Exiting lobby mode.`);
-                    this.exitLobbyMode();
-                }
-            }
-        }, 30000);
+            sendReturnCommand('retry');
+        }, retryIntervalMs);
     }
 
     stopLobbyRetry() {
@@ -1548,6 +1862,7 @@ export class MinecraftBot {
             clearInterval(this.inventoryMonitorInterval);
             this.inventoryMonitorInterval = null;
         }
+        this.stopAfkDriftCheck();
         this.stopLobbyRetry();
         this.isInLobby = false;
         this.lastProtectionTargetPos = null;

@@ -30,7 +30,8 @@ Hepsi bu kadar. Ayrintilar asagida.
 - Otomatik yemek yeme
 - Envanter ve arac dayaniklilik uyarilari
 - Proximity alarmi
-- Lobby algilama + geri donus denemesi (`/home sp1` gibi)
+- AFK anchor kaydi (`/afkset <slot>`) + 20 blok uzaklasmada hizli lobby algilama
+- Lobby algilama + geri donus denemesi (`/home sp` gibi, 2 dakikada bir)
 - Spawner koruma protokolu
 - Slot bazli `/protect` ac/kapat
 
@@ -141,7 +142,7 @@ Ornek:
     "alertDistance": 96,
     "alertCooldown": 300000,
     "alertWhitelist": [],
-    "lobbyReturnCommand": "/home sp1",
+    "lobbyReturnCommand": "/home sp",
     "protection": {
       "enabled": false,
       "emergencyDistance": 10,
@@ -229,11 +230,19 @@ Oturum verileri `sessions/` klasorunde tutulur. Bu klasoru silerseniz tekrar gir
 - `/protect <slot>` (toggle)
 - `/protect <slot> on`
 - `/protect <slot> off`
+- `/afkset <slot>`
 
 Koruma acik oldugunda:
 - Proximity kontrolu aktif olur
 - Lobby algilama ve geri donus denemesi aktif olur
 - Tehditte spawner koruma protokolu devreye girebilir
+- Spawnerlar tamamen temizlenirse bot rastgele `/spawn 1-5` gider ve 10 saniye sonra kapanir
+
+`/afkset <slot>` notu:
+- Slotun o anki AFK noktasi `minecraft.accounts[].afkProfile.anchor` alanina kaydedilir.
+- `settings.protection.radius` icindeki spawner koordinatlari `afkProfile.spawners` listesine yazilir.
+- Slot AFK anchor'dan 20+ blok uzaklasirsa lobby kabul edilir.
+- Lobby modundayken bot `/home sp` komutunu hemen, sonrasinda 2 dakikada bir yollar.
 
 ## 7) Telegram kurulum notlari
 

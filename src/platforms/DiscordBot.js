@@ -76,6 +76,10 @@ export class DiscordBot {
                 .setDescription('Spawner korumasını aç/kapat')
                 .addIntegerOption(opt => opt.setName('slot').setDescription('Slot numarası').setRequired(true)),
             new SlashCommandBuilder()
+                .setName('afkset')
+                .setDescription('AFK noktası ve yakın spawnerları kaydet')
+                .addIntegerOption(opt => opt.setName('slot').setDescription('Slot numarası').setRequired(true)),
+            new SlashCommandBuilder()
                 .setName('logs')
                 .setDescription('Log akışını aç/kapat')
                 .addChannelOption(opt => opt.setName('kanal').setDescription('Log kanalı').setRequired(false)),
@@ -190,7 +194,7 @@ export class DiscordBot {
                     if (commandName === 'status') {
                         const slot = options.getInteger('slot');
                         if (slot) args.push(slot.toString());
-                    } else if (commandName === 'start' || commandName === 'stop' || commandName === 'pause' || commandName === 'resume' || commandName === 'inv' || commandName === 'protect') {
+                    } else if (commandName === 'start' || commandName === 'stop' || commandName === 'pause' || commandName === 'resume' || commandName === 'inv' || commandName === 'protect' || commandName === 'afkset') {
                         args.push(options.getInteger('slot').toString());
                     } else if (commandName === 'restart') {
                         args.push(options.getString('slot'));

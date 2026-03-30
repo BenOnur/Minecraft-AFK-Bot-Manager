@@ -57,7 +57,7 @@
         "alertDistance": 96,
         "alertCooldown": 300000,
         "alertWhitelist": [],
-        "lobbyReturnCommand": "/home sp1",
+        "lobbyReturnCommand": "/home sp",
         "protection": {
             "enabled": false,
             "emergencyDistance": 10,

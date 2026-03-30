@@ -67,6 +67,8 @@ export class CommandHandler {
                 case 'protect':
                 case 'p':
                     return await this.handleProtect(args);
+                case 'afkset':
+                    return await this.handleAfkSet(args);
                 case 'stats':
                     return await this.handleStats(args);
                 default:
@@ -492,6 +494,19 @@ export class CommandHandler {
         return { success: true, message };
     }
 
+    async handleAfkSet(args) {
+        if (args.length === 0) {
+            return { success: false, message: '❌ Kullanım: `/afkset <slot>`' };
+        }
+
+        const slot = parseInt(args[0], 10);
+        if (isNaN(slot)) {
+            return { success: false, message: '❌ Geçersiz slot numarası' };
+        }
+
+        return await this.botManager.setAfkProfile(slot);
+    }
+
     handleHelp(platform) {
         if (platform === 'telegram') {
             return this.handleTelegramHelp();
@@ -547,6 +562,7 @@ export class CommandHandler {
 <code>/whitelist remove <oyuncu></code> — Whitelist'ten çıkar
 <code>/whitelist list</code> — Whitelist'i göster
 <code>/protect <slot> [on|off]</code> — Lobby + spawner korumasını aç/kapat
+<code>/afkset <slot></code> — AFK anchor + çevre spawnerlarını kaydet
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
 💡 <b>Slot formatları:</b> <code>1</code> · <code>1,2,3</code> · <code>1-5</code> · <code>all</code>
@@ -596,7 +612,7 @@ export class CommandHandler {
                     },
                     {
                         name: '🛡️ Güvenlik',
-                        value: '`/whitelist add <oyuncu>` — Whitelist\'e ekle\n`/whitelist remove <oyuncu>` — Whitelist\'ten çıkar\n`/whitelist list` — Whitelist\'i göster\n`/protect <slot> [on|off]` — Lobby + spawner korumasını aç/kapat',
+                        value: '`/whitelist add <oyuncu>` — Whitelist\'e ekle\n`/whitelist remove <oyuncu>` — Whitelist\'ten çıkar\n`/whitelist list` — Whitelist\'i göster\n`/protect <slot> [on|off]` — Lobby + spawner korumasını aç/kapat\n`/afkset <slot>` — AFK anchor + spawner kaydı al',
                         inline: false
                     }
                 ],
@@ -639,6 +655,7 @@ export class CommandHandler {
 /whitelist add <player> - Add player to alert whitelist
 /whitelist list - Show whitelisted players
 /protect <slot> [on|off] - Toggle lobby + spawner protection
+/afkset <slot> - Save AFK anchor + nearby spawners
 /stats [slot] - Bot statistics
     `.trim();
 
