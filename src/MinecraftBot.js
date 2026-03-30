@@ -1087,12 +1087,14 @@ export class MinecraftBot {
 
     async performPacketDigCycle(pos, options = {}) {
         if (!this.bot?._client) {
-            return;
+            return { gained: 0, blockMissingDuringHold: false };
         }
 
         const holdMs = Math.max(250, options.digActionTimeout ?? 1200);
         const pulseMs = Math.max(45, options.packetDigPulseMs ?? 120);
         const restartMs = Math.max(0, options.packetDigRestartMs ?? 0);
+        const spawnerBefore = Number.isFinite(options.spawnerBefore) ? options.spawnerBefore : null;
+        const blockName = typeof options.blockName === 'string' ? options.blockName : null;
         const location = {
             x: Math.floor(Number(pos.x)),
             y: Math.floor(Number(pos.y)),
@@ -1114,10 +1116,35 @@ export class MinecraftBot {
         sendDigPacket(0);
         let lastRestartAt = Date.now();
         const startedAt = Date.now();
+        let blockMissingDuringHold = false;
 
         while ((Date.now() - startedAt) <= holdMs) {
             if (!this.bot || this.status !== 'online') {
                 break;
+            }
+
+            if (spawnerBefore !== null) {
+                const gainedNow = this.getSpawnerItemCount() - spawnerBefore;
+                if (gainedNow > 0) {
+                    try {
+                        sendDigPacket(2);
+                    } catch (_) {
+                        // ignore
+                    }
+                    await sleep(90);
+                    return {
+                        gained: gainedNow,
+                        blockMissingDuringHold: false
+                    };
+                }
+            }
+
+            if (blockName) {
+                const liveBlock = this.bot.blockAt(pos);
+                if (!liveBlock || liveBlock.name !== blockName) {
+                    blockMissingDuringHold = true;
+                    break;
+                }
             }
 
             try {
@@ -1146,6 +1173,11 @@ export class MinecraftBot {
         }
 
         await sleep(90);
+        let gained = 0;
+        if (spawnerBefore !== null) {
+            gained = Math.max(0, this.getSpawnerItemCount() - spawnerBefore);
+        }
+        return { gained, blockMissingDuringHold };
     }
 
     orderBlocksSequentially(blocks, startPos = null) {
@@ -1250,6 +1282,7 @@ export class MinecraftBot {
             }
 
             const spawnerBefore = this.getSpawnerItemCount();
+            let packetCycleResult = null;
 
             try {
                 const digTarget = pos.offset(0.5, 0.5, 0.5);
@@ -1271,10 +1304,12 @@ export class MinecraftBot {
                     }
                 }
                 if (packetDigEnabled) {
-                    await this.performPacketDigCycle(pos, {
+                    packetCycleResult = await this.performPacketDigCycle(pos, {
                         digActionTimeout,
                         packetDigPulseMs,
-                        packetDigRestartMs
+                        packetDigRestartMs,
+                        spawnerBefore,
+                        blockName
                     });
                 } else {
                     digSettled = false;
@@ -1311,9 +1346,14 @@ export class MinecraftBot {
                 await sleep(breakDelay);
             }
 
+            if (packetCycleResult?.gained > 0) {
+                await releaseDigIfPending(true);
+                return { broken: true, byInventory: true, gained: packetCycleResult.gained };
+            }
+
             // Stacked spawner servers may keep the same block and add items later (e.g. 10s cooldown).
             const confirmStart = Date.now();
-            let sawDisappearDuringConfirm = false;
+            let sawDisappearDuringConfirm = packetCycleResult?.blockMissingDuringHold === true;
             while ((Date.now() - confirmStart) <= inventoryConfirmTimeout) {
                 const spawnerAfter = this.getSpawnerItemCount();
                 if (spawnerAfter > spawnerBefore) {
@@ -1437,7 +1477,9 @@ export class MinecraftBot {
             packetDigPulseMs: Math.max(45, protectionConfig.packetDigPulseMs ?? 120),
             packetDigRestartMs: Math.max(0, protectionConfig.packetDigRestartMs ?? 0),
             // Hold left-click long enough for stacked-spawner plugin break windows.
-            digActionTimeout: Math.max(1000, protectionConfig.digActionTimeout ?? 4500),
+            digActionTimeout: packetDigEnabled
+                ? Math.max(8000, protectionConfig.digActionTimeout ?? 9000)
+                : Math.max(1000, protectionConfig.digActionTimeout ?? 4500),
             postDigReleaseDelay: Math.max(0, protectionConfig.postDigReleaseDelay ?? 25),
             blockGoneStableMs: Math.max(0, protectionConfig.blockGoneStableMs ?? 500),
             blockGoneRecheckInterval: Math.max(20, protectionConfig.blockGoneRecheckInterval ?? 100)
@@ -1604,24 +1646,26 @@ export class MinecraftBot {
                             await this.equipPickaxe();
                         }
 
-                        const quickFollowUpSwing = hasAimedAtTarget;
+                        const quickFollowUpSwing = packetDigEnabled ? false : hasAimedAtTarget;
                         const shouldDeepProbe = noGainStreak > 0 && (noGainStreak % 8 === 0);
                         const adaptiveConfirmTimeout = packetDigEnabled
-                            ? Math.max(5500, breakOptions.inventoryConfirmTimeout)
+                            ? Math.max(9000, breakOptions.inventoryConfirmTimeout)
                             : (shouldDeepProbe
                                 ? Math.max(2500, breakOptions.inventoryConfirmTimeout)
                                 : breakOptions.inventoryConfirmTimeout);
-                        const maxDigHoldMs = Math.max(3000, Math.min(7000, breakOptions.digActionTimeout));
+                        const maxDigHoldMs = packetDigEnabled
+                            ? Math.max(8000, Math.min(15000, breakOptions.digActionTimeout))
+                            : Math.max(3000, Math.min(7000, breakOptions.digActionTimeout));
                         const mediumDigHoldMs = Math.max(2400, Math.min(maxDigHoldMs, 3400));
                         const fastDigHoldMs = Math.max(1800, Math.min(maxDigHoldMs, 2600));
                         let adaptiveDigTimeout = fastDigHoldMs;
                         if (packetDigEnabled) {
                             adaptiveDigTimeout = maxDigHoldMs;
                             if (noGainStreak >= 4) {
-                                adaptiveDigTimeout = Math.min(7000, maxDigHoldMs + 1000);
+                                adaptiveDigTimeout = Math.min(17000, maxDigHoldMs + 2000);
                             }
                             if (shouldDeepProbe) {
-                                adaptiveDigTimeout = Math.min(7000, Math.max(adaptiveDigTimeout, adaptiveConfirmTimeout));
+                                adaptiveDigTimeout = Math.min(18000, Math.max(adaptiveDigTimeout, adaptiveConfirmTimeout));
                             }
                         } else {
                             if (noGainStreak >= 3) {
