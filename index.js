@@ -111,6 +111,7 @@ function normalizeConfig(config) {
         preDigPause: 35,
         blockGoneStableMs: 500,
         blockGoneRecheckInterval: 100,
+        stackBatchSize: 64,
         maxHitsPerBlock: 256,
         goneConfirmChecks: 3,
         goneConfirmInterval: 50,

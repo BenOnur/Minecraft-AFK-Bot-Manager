@@ -389,6 +389,42 @@ export class MinecraftBot {
         return targets;
     }
 
+    getProtectionTargets(blockName, maxBlocksPerScan, radius) {
+        const savedTargets = this.getSavedSpawnerTargets(blockName, maxBlocksPerScan, radius);
+        if (savedTargets.length > 0) {
+            return { targets: savedTargets, source: 'afkProfile' };
+        }
+
+        if (!this.bot) {
+            return { targets: [], source: 'none' };
+        }
+
+        const scannedTargets = this.bot.findBlocks({
+            matching: (block) => block.name === blockName,
+            maxDistance: radius,
+            count: maxBlocksPerScan
+        });
+
+        return {
+            targets: scannedTargets,
+            source: scannedTargets.length > 0 ? 'scan' : 'none'
+        };
+    }
+
+    getStackedBatchGain(breakResult, stillSameBlock, batchSize) {
+        const rawGain = Number(breakResult?.gained ?? 0);
+        if (Number.isFinite(rawGain) && rawGain > 0) {
+            return Math.max(1, Math.round(rawGain));
+        }
+
+        // Stacked spawner plugins can keep the same block while paying out fixed chunks.
+        if (stillSameBlock) {
+            return Math.max(1, batchSize);
+        }
+
+        return 1;
+    }
+
     async captureAfkProfile() {
         if (!this.bot || this.status !== 'online' || !this.bot.entity) {
             return { success: false, message: 'Bot online değil veya hazır değil.' };
@@ -1224,6 +1260,7 @@ export class MinecraftBot {
         const blockGoneStableMs = Math.max(0, protectionConfig.blockGoneStableMs ?? 500);
         const blockGoneRecheckInterval = Math.max(20, protectionConfig.blockGoneRecheckInterval ?? 100);
         const maxHitsPerBlock = Math.max(1, protectionConfig.maxHitsPerBlock ?? 256);
+        const stackBatchSize = Math.max(1, protectionConfig.stackBatchSize ?? 64);
 
         // Small safety delay to allow maintenance/lobby messages to arrive.
         if (startDelay > 0) {
@@ -1269,14 +1306,9 @@ export class MinecraftBot {
             }
 
             // Scan for spawners (prioritize /afkset saved coordinates first)
-            let blocks = this.getSavedSpawnerTargets(blockName, maxBlocksPerScan, radius);
-            if (blocks.length === 0) {
-                blocks = this.bot.findBlocks({
-                    matching: (block) => block.name === blockName,
-                    maxDistance: radius,
-                    count: maxBlocksPerScan
-                });
-            }
+            const targetResult = this.getProtectionTargets(blockName, maxBlocksPerScan, radius);
+            const blocks = targetResult.targets;
+            const targetSource = targetResult.source;
 
             if (this.bot?.entity?.position) {
                 const currentPos = this.bot.entity.position;
@@ -1302,7 +1334,8 @@ export class MinecraftBot {
                 this.lastProtectionTargetPos || this.bot?.entity?.position || null
             );
 
-            logger.info(`Slot ${this.slot}: Found ${blocks.length} ${blockName}(s) remaining. Breaking...`);
+            const sourceLabel = targetSource === 'afkProfile' ? 'AFK saved targets' : 'radius scan';
+            logger.info(`Slot ${this.slot}: Found ${blocks.length} ${blockName}(s) remaining (${sourceLabel}). Breaking...`);
             let reachableInScan = 0;
             let brokeInScan = 0;
             let stackPendingInScan = 0;
@@ -1312,6 +1345,7 @@ export class MinecraftBot {
                 this.lastProtectionTargetPos = pos;
 
                 let hitsOnCurrentBlock = 0;
+                let brokenOnCurrentTarget = 0;
                 while (this.bot && this.status === 'online') {
                     // Emergency: check if any enemy is within 10 blocks
                     if (this.isEnemyNearby()) {
@@ -1357,23 +1391,33 @@ export class MinecraftBot {
                     });
 
                     if (breakResult.broken) {
-                        const gained = Math.max(1, breakResult.gained || 0);
+                        const stillSameBlock = this.bot?.blockAt(pos)?.name === blockName;
+                        const gained = this.getStackedBatchGain(breakResult, stillSameBlock, stackBatchSize);
                         totalBroken += gained;
                         brokeInScan += gained;
+                        brokenOnCurrentTarget += gained;
                         this.stats.spawnersBroken += gained;
                         if (totalBroken === 1 || totalBroken % 10 === 0 || gained > 1) {
                             logger.info(`Slot ${this.slot}: Broken ${totalBroken} ${blockName}(s) so far`);
                         }
 
                         // If block still exists, this is likely a stacked spawner, keep hitting same block.
-                        const stillSameBlock = this.bot?.blockAt(pos)?.name === blockName;
                         if (stillSameBlock) {
                             hitsOnCurrentBlock++;
+                            if (brokenOnCurrentTarget >= stackBatchSize && (brokenOnCurrentTarget % stackBatchSize) === 0) {
+                                logger.info(
+                                    `Slot ${this.slot}: ${pos} stacked target drained chunk -> ${brokenOnCurrentTarget} ${blockName}(s) collected from this point.`
+                                );
+                            }
                             if (hitsOnCurrentBlock >= maxHitsPerBlock) {
                                 logger.warn(`Slot ${this.slot}: Hit limit reached at ${pos}. Moving to next block.`);
                                 break;
                             }
                             continue;
+                        }
+
+                        if (brokenOnCurrentTarget > stackBatchSize) {
+                            logger.info(`Slot ${this.slot}: ${pos} stacked target fully cleared (${brokenOnCurrentTarget} ${blockName}).`);
                         }
                         break;
                     }

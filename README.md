@@ -236,11 +236,13 @@ Koruma acik oldugunda:
 - Proximity kontrolu aktif olur
 - Lobby algilama ve geri donus denemesi aktif olur
 - Tehditte spawner koruma protokolu devreye girebilir
+- Stacked spawner sunucularinda ayni koordinattaki spawner stack'i 64'luk chunk'lar halinde bitene kadar kirilmaya devam eder
 - Spawnerlar tamamen temizlenirse bot rastgele `/spawn 1-5` gider ve 10 saniye sonra kapanir
 
 `/afkset <slot>` notu:
 - Slotun o anki AFK noktasi `minecraft.accounts[].afkProfile.anchor` alanina kaydedilir.
 - `settings.protection.radius` icindeki spawner koordinatlari `afkProfile.spawners` listesine yazilir.
+- Stacked kirma chunk boyutu `settings.protection.stackBatchSize` (varsayilan `64`) ile ayarlanabilir.
 - Slot AFK anchor'dan 20+ blok uzaklasirsa lobby kabul edilir.
 - Lobby modundayken bot `/home sp` komutunu hemen, sonrasinda 2 dakikada bir yollar.
 
