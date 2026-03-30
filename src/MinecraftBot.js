@@ -1247,8 +1247,8 @@ export class MinecraftBot {
         const stackedTargetMissingConfirmMs = Math.max(1000, protectionConfig.stackedTargetMissingConfirmMs ?? 8000);
         const stackedExhaustionIdleMs = Math.max(5000, protectionConfig.stackedExhaustionIdleMs ?? 300000);
         const noTargetRescanDelay = Math.max(50, protectionConfig.noTargetRescanDelay ?? 100);
-        const stackedNoGainRetryDelay = Math.max(100, protectionConfig.stackedNoGainRetryDelay ?? 350);
-        const stackedNoGainBackoffAfter = Math.max(1, protectionConfig.stackedNoGainBackoffAfter ?? 8);
+        const stackedNoGainRetryDelay = Math.min(1000, Math.max(100, protectionConfig.stackedNoGainRetryDelay ?? 350));
+        const stackedNoGainBackoffAfter = Math.max(8, protectionConfig.stackedNoGainBackoffAfter ?? 8);
         const hasSavedAfkTargets = Array.isArray(this.afkProfile?.spawners) && this.afkProfile.spawners.length > 0;
 
         const breakOptions = {
@@ -1262,11 +1262,11 @@ export class MinecraftBot {
                 protectionConfig.inventoryConfirmDelay ??
                 80
             ),
-            inventoryConfirmPollInterval: Math.max(20, protectionConfig.inventoryConfirmPollInterval ?? 100),
+            inventoryConfirmPollInterval: Math.max(100, protectionConfig.inventoryConfirmPollInterval ?? 100),
             goneConfirmChecks: Math.max(1, protectionConfig.goneConfirmChecks ?? 3),
             goneConfirmInterval: Math.max(0, protectionConfig.goneConfirmInterval ?? 50),
             stackedFastMode: protectionConfig.stackedFastMode !== false,
-            stackedFastGraceMs: Math.max(0, protectionConfig.stackedFastGraceMs ?? 900),
+            stackedFastGraceMs: Math.max(900, protectionConfig.stackedFastGraceMs ?? 900),
             naturalLookEnabled: protectionConfig.naturalLookEnabled !== false,
             naturalLookSteps: Math.max(1, protectionConfig.naturalLookSteps ?? 4),
             naturalLookStepDelay: Math.max(0, protectionConfig.naturalLookStepDelay ?? 20),
