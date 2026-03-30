@@ -251,6 +251,7 @@ Koruma acik oldugunda:
 - Son kirmadan hemen sonra target gorunmezse erken retreat engeli icin `settings.protection.stackedExhaustionIdleMs` (varsayilan `45000`) boyunca tekrar deneme yapar.
 - Tek bir hedef anlik kayboldugunda o hedefte kisa sureli bekleme penceresi `settings.protection.stackedTargetMissingConfirmMs` (varsayilan `8000`) ile yonetilir.
 - Envantere gain dusmeyen art arda denemelerde anti-ghost backoff uygulanir: `stackedNoGainBackoffAfter` ve `stackedNoGainRetryDelay`.
+- Koruma sirasinda her basarili spawner kiriminda Telegram/Discord bildirim gider; tum hedefler temizlenince `/spawn 1-5` oncesi tamamlandi bildirimi gonderilir.
 - Slot AFK anchor'dan 20+ blok uzaklasirsa lobby kabul edilir.
 - Lobby modundayken bot `/home sp` komutunu hemen, sonrasinda 2 dakikada bir yollar.
 

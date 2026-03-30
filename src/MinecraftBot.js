@@ -424,20 +424,6 @@ export class MinecraftBot {
         };
     }
 
-    getStackedBatchGain(breakResult, stillSameBlock, batchSize) {
-        const rawGain = Number(breakResult?.gained ?? 0);
-        if (Number.isFinite(rawGain) && rawGain > 0) {
-            return Math.max(1, Math.round(rawGain));
-        }
-
-        // If stack block still exists and inventory did not increase, do not count as progress.
-        if (stillSameBlock) {
-            return 0;
-        }
-
-        return 1;
-    }
-
     async captureAfkProfile() {
         if (!this.bot || this.status !== 'online' || !this.bot.entity) {
             return { success: false, message: 'Bot online değil veya hazır değil.' };
@@ -1242,11 +1228,9 @@ export class MinecraftBot {
 
     async executeProtection() {
         if (!this.bot || this.status !== 'online') return;
-        if (this._protectionRunning) return; // Prevent multiple concurrent runs
-
-        // Safety check: Deke before shooting
+        if (this._protectionRunning) return;
         if (this.isInLobby) {
-            logger.warn(`Slot ${this.slot}: 🛡️ Protection triggered but bot is in LOBBY mode. Aborting.`);
+            logger.warn(`Slot ${this.slot}: Protection triggered in lobby, aborting.`);
             return;
         }
 
@@ -1254,394 +1238,239 @@ export class MinecraftBot {
         const startDelay = Math.max(0, protectionConfig.startDelay ?? 250);
         const blockName = protectionConfig.blockType || 'spawner';
         const radius = protectionConfig.radius || 64;
-        const breakDelay = Math.max(0, protectionConfig.breakDelay ?? 0);
-        const verifyDelay = Math.max(0, protectionConfig.verifyDelay ?? 80);
-        const breakRetryCount = Math.max(0, protectionConfig.breakRetryCount ?? 1);
-        const breakRetryDelay = Math.max(0, protectionConfig.breakRetryDelay ?? 100);
         const maxBlocksPerScan = Math.max(1, protectionConfig.maxBlocksPerScan ?? 256);
         const maxBreakReach = Math.max(1, protectionConfig.maxBreakReach ?? 5.0);
-        const inventoryConfirmTimeout = Math.max(
-            0,
-            protectionConfig.inventoryConfirmTimeout ??
-            protectionConfig.inventoryConfirmDelay ??
-            80
-        );
-        const inventoryConfirmPollInterval = Math.max(20, protectionConfig.inventoryConfirmPollInterval ?? 250);
-        const goneConfirmChecks = Math.max(1, protectionConfig.goneConfirmChecks ?? 3);
-        const goneConfirmInterval = Math.max(0, protectionConfig.goneConfirmInterval ?? 50);
-        const stackedFastMode = protectionConfig.stackedFastMode !== false;
-        const stackedFastGraceMs = Math.max(0, protectionConfig.stackedFastGraceMs ?? 150);
-        const naturalLookEnabled = protectionConfig.naturalLookEnabled !== false;
-        const naturalLookSteps = Math.max(1, protectionConfig.naturalLookSteps ?? 4);
-        const naturalLookStepDelay = Math.max(0, protectionConfig.naturalLookStepDelay ?? 20);
-        const naturalLookJitter = Math.max(0, protectionConfig.naturalLookJitter ?? 0.01);
-        const preDigPause = Math.max(0, protectionConfig.preDigPause ?? 35);
-        const blockGoneStableMs = Math.max(0, protectionConfig.blockGoneStableMs ?? 500);
-        const blockGoneRecheckInterval = Math.max(20, protectionConfig.blockGoneRecheckInterval ?? 100);
-        const maxHitsPerBlock = Math.max(1, protectionConfig.maxHitsPerBlock ?? 256);
-        const stackBatchSize = Math.max(1, protectionConfig.stackBatchSize ?? 64);
-        const stackedDepletionConfirmMs = Math.max(
-            1000,
-            protectionConfig.stackedDepletionConfirmMs ?? Math.max(30000, inventoryConfirmTimeout + 1000)
-        );
-        const stackedExhaustionIdleMs = Math.max(5000, protectionConfig.stackedExhaustionIdleMs ?? 45000);
+        const noTargetConfirmMs = Math.max(1000, protectionConfig.stackedDepletionConfirmMs ?? 30000);
         const stackedTargetMissingConfirmMs = Math.max(1000, protectionConfig.stackedTargetMissingConfirmMs ?? 8000);
+        const stackedExhaustionIdleMs = Math.max(5000, protectionConfig.stackedExhaustionIdleMs ?? 45000);
         const noTargetRescanDelay = Math.max(50, protectionConfig.noTargetRescanDelay ?? 100);
         const stackedNoGainRetryDelay = Math.max(250, protectionConfig.stackedNoGainRetryDelay ?? 5000);
         const stackedNoGainBackoffAfter = Math.max(1, protectionConfig.stackedNoGainBackoffAfter ?? 2);
-        const hasSavedAfkTargets = Array.isArray(this.afkProfile?.spawners) && this.afkProfile.spawners.length > 0;
 
-        // Small safety delay to allow maintenance/lobby messages to arrive.
+        const breakOptions = {
+            breakDelay: Math.max(0, protectionConfig.breakDelay ?? 0),
+            verifyDelay: Math.max(0, protectionConfig.verifyDelay ?? 80),
+            breakRetryCount: Math.max(0, protectionConfig.breakRetryCount ?? 1),
+            breakRetryDelay: Math.max(0, protectionConfig.breakRetryDelay ?? 100),
+            inventoryConfirmTimeout: Math.max(
+                0,
+                protectionConfig.inventoryConfirmTimeout ??
+                protectionConfig.inventoryConfirmDelay ??
+                80
+            ),
+            inventoryConfirmPollInterval: Math.max(20, protectionConfig.inventoryConfirmPollInterval ?? 250),
+            goneConfirmChecks: Math.max(1, protectionConfig.goneConfirmChecks ?? 3),
+            goneConfirmInterval: Math.max(0, protectionConfig.goneConfirmInterval ?? 50),
+            stackedFastMode: protectionConfig.stackedFastMode !== false,
+            stackedFastGraceMs: Math.max(0, protectionConfig.stackedFastGraceMs ?? 150),
+            naturalLookEnabled: protectionConfig.naturalLookEnabled !== false,
+            naturalLookSteps: Math.max(1, protectionConfig.naturalLookSteps ?? 4),
+            naturalLookStepDelay: Math.max(0, protectionConfig.naturalLookStepDelay ?? 20),
+            naturalLookJitter: Math.max(0, protectionConfig.naturalLookJitter ?? 0.01),
+            preDigPause: Math.max(0, protectionConfig.preDigPause ?? 35),
+            blockGoneStableMs: Math.max(0, protectionConfig.blockGoneStableMs ?? 500),
+            blockGoneRecheckInterval: Math.max(20, protectionConfig.blockGoneRecheckInterval ?? 100)
+        };
+
         if (startDelay > 0) {
             await sleep(startDelay);
         }
-
-        // Re-check lobby status after delay
-        if (this.isInLobby) {
-            logger.warn(`Slot ${this.slot}: 🛡️ Protection aborted (Lobby detected after delay).`);
+        if (!this.bot || this.status !== 'online' || this.isInLobby) {
             return;
         }
 
         this._protectionRunning = true;
+        this.bot.setControlState('sneak', true);
 
-        logger.warn(`Slot ${this.slot}: 🛡️ INITIATING SPAWNER PROTECTION PROTOCOL 🛡️`);
-
-        // Equip the best available pickaxe for faster breaking.
         const bestPickaxe = this.getBestPickaxe();
         if (bestPickaxe) {
             await this.equipPickaxe(true);
-        } else {
-            logger.warn(`Slot ${this.slot}: No pickaxe found! Breaking with hand (slow).`);
         }
 
-        this.bot.setControlState('sneak', true);
-
         let totalBroken = 0;
-        let completedByClearingTargets = false;
-        let lastBreakAt = 0;
+        let lastGainAt = 0;
         let noTargetSince = null;
-        let nextNoTargetLogAt = 0;
-        // Loop: keep scanning and breaking until no spawners remain or inventory full
-        while (this.bot && this.status === 'online') {
-            if (this.isInLobby) {
-                logger.warn(`Slot ${this.slot}: Lobby detected during protection. Aborting protection without disconnect.`);
-                this._protectionRunning = false;
-                if (this.bot) this.bot.setControlState('sneak', false);
-                return;
+        let completedByClearingTargets = false;
+
+        const notify = (message) => {
+            if (this.onInventoryAlert) {
+                this.onInventoryAlert(message);
             }
+        };
 
-            // Check inventory fullness (stop if <= 2 empty slots to ensure we picked up loot)
-            const emptySlots = this.bot.inventory.emptySlotCount();
-            if (emptySlots <= 2) {
-                logger.warn(`Slot ${this.slot}: 📦 Inventory nearly FULL (<=2 slots)! Stopping protection and disconnecting.`);
-                break;
-            }
-
-            // Scan for spawners (prioritize /afkset saved coordinates first)
-            const targetResult = this.getProtectionTargets(blockName, maxBlocksPerScan, radius, {
-                includeMissingSavedTargets: false
-            });
-            const blocks = targetResult.targets;
-            const targetSource = targetResult.source;
-
-            if (this.bot?.entity?.position) {
-                const currentPos = this.bot.entity.position;
-                blocks.sort((a, b) => currentPos.distanceSquared(a) - currentPos.distanceSquared(b));
-            }
-
-            if (blocks.length === 0) {
-                this.lastProtectionTargetPos = null;
+        try {
+            while (this.bot && this.status === 'online') {
                 if (this.isInLobby) {
-                    logger.warn(`Slot ${this.slot}: In lobby and no target blocks found. Aborting protection without disconnect.`);
-                    this._protectionRunning = false;
-                    if (this.bot) this.bot.setControlState('sneak', false);
+                    logger.warn(`Slot ${this.slot}: Lobby detected during protection, aborting.`);
+                    break;
+                }
+
+                if (this.isEnemyNearby()) {
+                    logger.error(`Slot ${this.slot}: Enemy too close during protection, emergency stop.`);
+                    await this.stop();
                     return;
                 }
 
-                const shouldGuardNoTargets = hasSavedAfkTargets || lastBreakAt > 0;
-                if (shouldGuardNoTargets) {
-                    if (!noTargetSince) {
-                        noTargetSince = Date.now();
-                        nextNoTargetLogAt = 0;
-                    }
-
-                    const now = Date.now();
-                    const elapsedNoTarget = now - noTargetSince;
-                    const elapsedSinceLastBreak = lastBreakAt > 0 ? now - lastBreakAt : Infinity;
-                    const waitByNoTargetConfirm = elapsedNoTarget < stackedDepletionConfirmMs;
-                    const waitByRecentBreak = elapsedSinceLastBreak < stackedExhaustionIdleMs;
-                    if (waitByNoTargetConfirm || waitByRecentBreak) {
-                        if (now >= nextNoTargetLogAt) {
-                            const remainingByNoTarget = waitByNoTargetConfirm
-                                ? Math.ceil((stackedDepletionConfirmMs - elapsedNoTarget) / 1000)
-                                : 0;
-                            const remainingByRecentBreak = waitByRecentBreak
-                                ? Math.ceil((stackedExhaustionIdleMs - elapsedSinceLastBreak) / 1000)
-                                : 0;
-                            const remainSec = Math.max(remainingByNoTarget, remainingByRecentBreak);
-                            logger.info(
-                                `Slot ${this.slot}: No visible ${blockName}. Re-checking for ${remainSec}s before retreat.`
-                            );
-                            nextNoTargetLogAt = now + 5000;
-                        }
-                        await sleep(noTargetRescanDelay);
-                        continue;
-                    }
+                if (this.bot.inventory.emptySlotCount() <= 2) {
+                    logger.warn(`Slot ${this.slot}: Inventory nearly full, stopping protection.`);
+                    break;
                 }
 
-                logger.info(`Slot ${this.slot}: All ${blockName}s destroyed (${totalBroken} total). Preparing spawn retreat.`);
-                completedByClearingTargets = true;
-                break;
-            }
-            noTargetSince = null;
-            nextNoTargetLogAt = 0;
+                const targetResult = this.getProtectionTargets(blockName, maxBlocksPerScan, radius, {
+                    includeMissingSavedTargets: false
+                });
+                const blocks = targetResult.targets;
 
-            const orderedBlocks = this.orderBlocksSequentially(
-                blocks,
-                this.lastProtectionTargetPos || this.bot?.entity?.position || null
-            );
+                if (this.bot?.entity?.position) {
+                    const currentPos = this.bot.entity.position;
+                    blocks.sort((a, b) => currentPos.distanceSquared(a) - currentPos.distanceSquared(b));
+                }
 
-            const sourceLabel = targetSource === 'afkProfile' ? 'AFK saved targets' : 'radius scan';
-            const targetNoun = targetSource === 'afkProfile' ? 'saved target point(s)' : `${blockName}(s) remaining`;
-            logger.info(`Slot ${this.slot}: Found ${blocks.length} ${targetNoun} (${sourceLabel}). Breaking...`);
-            let reachableInScan = 0;
-            let brokeInScan = 0;
-            let stackPendingInScan = 0;
-
-            for (const pos of orderedBlocks) {
-                if (!this.bot) { this._protectionRunning = false; return; }
-                this.lastProtectionTargetPos = pos;
-
-                let hitsOnCurrentBlock = 0;
-                let brokenOnCurrentTarget = 0;
-                let missingSince = null;
-                let nextMissingLogAt = 0;
-                let noProgressSince = Date.now();
-                let noGainStreak = 0;
-                while (this.bot && this.status === 'online') {
-                    // Emergency: check if any enemy is within 10 blocks
-                    if (this.isEnemyNearby()) {
-                        logger.error(`Slot ${this.slot}: Enemy too close while breaking! Emergency disconnect.`);
-                        this._protectionRunning = false;
-                        this.stop();
-                        return;
+                if (blocks.length === 0) {
+                    if (!noTargetSince) {
+                        noTargetSince = Date.now();
                     }
 
-                    // Re-check inventory before each break
-                    if (this.bot.inventory.emptySlotCount() <= 2) {
-                        logger.warn(`Slot ${this.slot}: Inventory nearly full mid-break. Stopping protection and disconnecting.`);
+                    const sinceNoTarget = Date.now() - noTargetSince;
+                    const sinceLastGain = lastGainAt > 0 ? Date.now() - lastGainAt : Infinity;
+                    if (sinceNoTarget >= noTargetConfirmMs && sinceLastGain >= noTargetConfirmMs) {
+                        completedByClearingTargets = true;
                         break;
                     }
 
-                    const blockDistance = this.bot.entity.position.distanceTo(pos.offset(0.5, 0.5, 0.5));
-                    if (blockDistance > maxBreakReach) {
+                    await sleep(noTargetRescanDelay);
+                    continue;
+                }
+
+                noTargetSince = null;
+
+                const orderedBlocks = this.orderBlocksSequentially(
+                    blocks,
+                    this.lastProtectionTargetPos || this.bot?.entity?.position || null
+                );
+
+                for (const pos of orderedBlocks) {
+                    if (!this.bot || this.status !== 'online') {
                         break;
                     }
-                    reachableInScan++;
 
-                    const block = this.bot.blockAt(pos);
-                    if (!block || block.name !== blockName) {
-                        const shouldWatchForRespawn = (targetSource === 'afkProfile' && brokenOnCurrentTarget > 0);
-                        if (shouldWatchForRespawn) {
+                    this.lastProtectionTargetPos = pos;
+                    let missingSince = null;
+                    let noGainStreak = 0;
+                    let targetLastGainAt = Date.now();
+
+                    while (this.bot && this.status === 'online') {
+                        if (this.isInLobby) {
+                            break;
+                        }
+
+                        if (this.bot.inventory.emptySlotCount() <= 2) {
+                            break;
+                        }
+
+                        const blockDistance = this.bot.entity.position.distanceTo(pos.offset(0.5, 0.5, 0.5));
+                        if (blockDistance > maxBreakReach) {
+                            break;
+                        }
+
+                        const block = this.bot.blockAt(pos);
+                        if (!block || block.name !== blockName) {
                             if (!missingSince) {
                                 missingSince = Date.now();
-                                nextMissingLogAt = 0;
                             }
 
-                            const now = Date.now();
-                            const missingElapsed = now - missingSince;
-                            if (missingElapsed < stackedTargetMissingConfirmMs) {
-                                if (now >= nextMissingLogAt) {
-                                    const waitSec = Math.ceil((stackedTargetMissingConfirmMs - missingElapsed) / 1000);
-                                    logger.info(
-                                        `Slot ${this.slot}: ${pos} stacked target temporary missing. Waiting ${waitSec}s for re-appearance.`
-                                    );
-                                    nextMissingLogAt = now + 5000;
-                                }
+                            const missingElapsed = Date.now() - missingSince;
+                            const targetIdle = Date.now() - targetLastGainAt;
+                            if (missingElapsed < stackedTargetMissingConfirmMs || targetIdle < noTargetConfirmMs) {
                                 await sleep(noTargetRescanDelay);
                                 continue;
                             }
-                        }
-                        break;
-                    }
-
-                    missingSince = null;
-                    nextMissingLogAt = 0;
-
-                    const breakResult = await this.breakBlockWithVerification(pos, blockName, {
-                        breakDelay,
-                        verifyDelay,
-                        breakRetryCount,
-                        breakRetryDelay,
-                        inventoryConfirmTimeout,
-                        inventoryConfirmPollInterval,
-                        goneConfirmChecks,
-                        goneConfirmInterval,
-                        stackedFastMode,
-                        stackedFastGraceMs,
-                        naturalLookEnabled,
-                        naturalLookSteps,
-                        naturalLookStepDelay,
-                        naturalLookJitter,
-                        preDigPause,
-                        blockGoneStableMs,
-                        blockGoneRecheckInterval
-                    });
-
-                    if (breakResult.broken) {
-                        const stillSameBlock = this.bot?.blockAt(pos)?.name === blockName;
-                        const gained = this.getStackedBatchGain(breakResult, stillSameBlock, stackBatchSize);
-
-                        if (gained > 0) {
-                            noGainStreak = 0;
-                            lastBreakAt = Date.now();
-                            noProgressSince = Date.now();
-                            totalBroken += gained;
-                            brokeInScan += gained;
-                            brokenOnCurrentTarget += gained;
-                            this.stats.spawnersBroken += gained;
-                            if (totalBroken === 1 || totalBroken % 10 === 0 || gained > 1) {
-                                logger.info(`Slot ${this.slot}: Broken ${totalBroken} ${blockName}(s) so far`);
-                            }
-                        } else {
-                            noGainStreak++;
-                            const isPinnedTarget = targetSource === 'afkProfile' || brokenOnCurrentTarget > 0;
-                            if (isPinnedTarget && noGainStreak >= stackedNoGainBackoffAfter) {
-                                logger.info(
-                                    `Slot ${this.slot}: ${pos} had ${noGainStreak} no-gain breaks. Waiting ${Math.round(stackedNoGainRetryDelay / 1000)}s cooldown.`
-                                );
-                                await sleep(stackedNoGainRetryDelay);
-                            }
+                            break;
                         }
 
-                        // If block still exists, this is likely a stacked spawner, keep hitting same block.
-                        if (stillSameBlock) {
-                            const isPinnedTarget = targetSource === 'afkProfile' || brokenOnCurrentTarget > 0;
-                            if (!isPinnedTarget) {
-                                hitsOnCurrentBlock++;
-                            }
-                            if (brokenOnCurrentTarget >= stackBatchSize && (brokenOnCurrentTarget % stackBatchSize) === 0) {
-                                logger.info(
-                                    `Slot ${this.slot}: ${pos} stacked target drained chunk -> ${brokenOnCurrentTarget} ${blockName}(s) collected from this point.`
-                                );
-                            }
-                            if (hitsOnCurrentBlock >= maxHitsPerBlock) {
-                                logger.warn(`Slot ${this.slot}: Hit limit reached at ${pos}. Moving to next block.`);
-                                break;
-                            }
-                            continue;
-                        }
+                        missingSince = null;
 
-                        if (brokenOnCurrentTarget > stackBatchSize) {
-                            logger.info(`Slot ${this.slot}: ${pos} stacked target fully cleared (${brokenOnCurrentTarget} ${blockName}).`);
-                        }
+                        const breakResult = await this.breakBlockWithVerification(pos, blockName, breakOptions);
+                        if (breakResult.broken) {
+                            const gained = Math.max(0, Number(breakResult.gained || 0));
+                            const stillSameBlock = this.bot?.blockAt(pos)?.name === blockName;
 
-                        if (targetSource === 'afkProfile' || brokenOnCurrentTarget > 0) {
-                            if (!missingSince) {
-                                missingSince = Date.now();
-                                nextMissingLogAt = 0;
+                            if (gained > 0) {
+                                noGainStreak = 0;
+                                targetLastGainAt = Date.now();
+                                lastGainAt = targetLastGainAt;
+                                totalBroken += gained;
+                                this.stats.spawnersBroken += gained;
+                                const progressMsg = `[Spawner] Slot ${this.slot}: +${gained} spawner kirildi | Toplam: ${totalBroken}`;
+                                logger.info(progressMsg);
+                                notify(progressMsg);
+                            } else {
+                                noGainStreak++;
                             }
+
+                            if (stillSameBlock) {
+                                if (noGainStreak >= stackedNoGainBackoffAfter) {
+                                    await sleep(stackedNoGainRetryDelay);
+                                } else {
+                                    await sleep(noTargetRescanDelay);
+                                }
+                                continue;
+                            }
+
                             await sleep(noTargetRescanDelay);
                             continue;
                         }
-                        break;
-                    }
 
-                    if (breakResult.reason === 'already_gone') {
-                        break;
-                    }
-
-                    if (breakResult.reason === 'stack_still_exists' || breakResult.reason === 'block_reappeared') {
-                        stackPendingInScan++;
-                        noGainStreak++;
-                        const isPinnedTarget = targetSource === 'afkProfile' || brokenOnCurrentTarget > 0;
-                        if (!isPinnedTarget) {
-                            hitsOnCurrentBlock++;
-                        } else {
-                            if ((Date.now() - noProgressSince) >= stackedExhaustionIdleMs) {
-                                logger.warn(`Slot ${this.slot}: ${pos} stacked target gave no progress for too long. Moving on.`);
+                        if (
+                            breakResult.reason === 'stack_still_exists' ||
+                            breakResult.reason === 'block_reappeared' ||
+                            breakResult.reason === 'ghost_block_persisted' ||
+                            breakResult.reason === 'cannot_dig' ||
+                            breakResult.reason === 'dig_error'
+                        ) {
+                            noGainStreak++;
+                            if ((Date.now() - targetLastGainAt) >= stackedExhaustionIdleMs) {
+                                logger.warn(`Slot ${this.slot}: ${pos} target stalled for too long, moving on.`);
                                 break;
                             }
+
                             if (noGainStreak >= stackedNoGainBackoffAfter) {
                                 await sleep(stackedNoGainRetryDelay);
                             } else {
                                 await sleep(noTargetRescanDelay);
                             }
+                            continue;
                         }
-                        if (hitsOnCurrentBlock >= maxHitsPerBlock) {
-                            logger.warn(`Slot ${this.slot}: Stack pending too long at ${pos}. Moving to next block.`);
+
+                        if (breakResult.reason === 'already_gone') {
                             break;
                         }
-                        continue;
-                    }
 
-                    if (breakResult.reason === 'cannot_dig') {
-                        logger.warn(`Slot ${this.slot}: Cannot dig ${blockName} at ${pos}. Skipping.`);
-                        break;
+                        await sleep(noTargetRescanDelay);
                     }
-
-                    if (breakResult.reason === 'ghost_block_persisted') {
-                        logger.warn(`Slot ${this.slot}: ${blockName} at ${pos} still exists after retries.`);
-                        noGainStreak++;
-                        const isPinnedTarget = targetSource === 'afkProfile' || brokenOnCurrentTarget > 0;
-                        if (!isPinnedTarget) {
-                            hitsOnCurrentBlock++;
-                        } else {
-                            if ((Date.now() - noProgressSince) >= stackedExhaustionIdleMs) {
-                                logger.warn(`Slot ${this.slot}: ${pos} ghost stack gave no progress for too long. Moving on.`);
-                                break;
-                            }
-                            if (noGainStreak >= stackedNoGainBackoffAfter) {
-                                await sleep(stackedNoGainRetryDelay);
-                            } else {
-                                await sleep(noTargetRescanDelay);
-                            }
-                        }
-                        if (hitsOnCurrentBlock >= maxHitsPerBlock) break;
-                        continue;
-                    }
-
-                    if (breakResult.reason === 'dig_error') {
-                        logger.error(`Slot ${this.slot}: Failed to break block at ${pos}: ${breakResult.error?.message || 'unknown dig error'}`);
-                        break;
-                    }
-
-                    break;
                 }
-            }
 
-            if (reachableInScan === 0 && blocks.length > 0) {
-                logger.warn(`Slot ${this.slot}: ${blockName}s found but none are within reach (${maxBreakReach}m). Stopping protection.`);
-                break;
+                await sleep(25);
             }
-
-            if (brokeInScan === 0 && stackPendingInScan === 0 && reachableInScan > 0) {
-                logger.warn(`Slot ${this.slot}: No ${blockName} broken in this scan despite reachable targets. Retrying quickly.`);
+        } finally {
+            if (this.bot) {
+                this.bot.setControlState('sneak', false);
             }
-
-            // Small delay before re-scanning
-            await sleep(25);
+            this.lastProtectionTargetPos = null;
+            this._protectionRunning = false;
         }
 
-        if (this.bot) {
-            this.bot.setControlState('sneak', false);
-        }
-        this.lastProtectionTargetPos = null;
-
-        // Only disconnect if we actually ran the logic and finished (not early returned)
-        if (completedByClearingTargets) {
-            logger.info(`Slot ${this.slot}: Protection complete. Retreating to random /spawn (1-5), then stopping in 10s.`);
-            try {
-                await this.retreatToRandomSpawnAndStop();
-            } finally {
-                this._protectionRunning = false;
-            }
+        if (completedByClearingTargets && this.bot && this.status === 'online') {
+            const completeMsg = `[Spawner] Slot ${this.slot}: Tum spawnerlar temizlendi (${totalBroken}). /spawn 1-5 gidiliyor.`;
+            logger.info(completeMsg);
+            notify(completeMsg);
+            await this.retreatToRandomSpawnAndStop();
             return;
         }
 
-        logger.info(`Slot ${this.slot}: Protection protocol complete. Disconnecting.`);
-        this._protectionRunning = false;
-        await this.stop();
+        if (this.bot) {
+            await this.stop();
+        }
     }
 
     async retreatToRandomSpawnAndStop() {
