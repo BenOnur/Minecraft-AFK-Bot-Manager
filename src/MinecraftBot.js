@@ -1300,7 +1300,7 @@ export class MinecraftBot {
             breakRetryCount: Math.max(0, protectionConfig.breakRetryCount ?? 1),
             breakRetryDelay: Math.max(0, protectionConfig.breakRetryDelay ?? 100),
             inventoryConfirmTimeout: Math.max(
-                0,
+                5000,
                 protectionConfig.inventoryConfirmTimeout ??
                 protectionConfig.inventoryConfirmDelay ??
                 80
@@ -1465,6 +1465,12 @@ export class MinecraftBot {
                             skipLook: quickFollowUpSwing,
                             alwaysRealignAim: true,
                             forceLookForDig: true,
+                            // Stacked-spawner servers often need longer sustained hold; avoid early fast-exit.
+                            stackedFastMode: false,
+                            digActionTimeout: Math.max(
+                                breakOptions.digActionTimeout,
+                                breakOptions.inventoryConfirmTimeout
+                            ),
                             naturalLookSteps: quickFollowUpSwing ? 1 : breakOptions.naturalLookSteps,
                             naturalLookStepDelay: quickFollowUpSwing ? 0 : breakOptions.naturalLookStepDelay,
                             naturalLookJitter: quickFollowUpSwing ? 0.004 : breakOptions.naturalLookJitter,
