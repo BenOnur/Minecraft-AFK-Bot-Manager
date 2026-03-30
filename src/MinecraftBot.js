@@ -1263,7 +1263,7 @@ export class MinecraftBot {
         const stackBatchSize = Math.max(1, protectionConfig.stackBatchSize ?? 64);
         const stackedDepletionConfirmMs = Math.max(
             1000,
-            protectionConfig.stackedDepletionConfirmMs ?? Math.max(12000, inventoryConfirmTimeout + 1000)
+            protectionConfig.stackedDepletionConfirmMs ?? Math.max(30000, inventoryConfirmTimeout + 1000)
         );
         const noTargetRescanDelay = Math.max(100, protectionConfig.noTargetRescanDelay ?? 500);
         const hasSavedAfkTargets = Array.isArray(this.afkProfile?.spawners) && this.afkProfile.spawners.length > 0;
@@ -1377,6 +1377,8 @@ export class MinecraftBot {
 
                 let hitsOnCurrentBlock = 0;
                 let brokenOnCurrentTarget = 0;
+                let missingSince = null;
+                let nextMissingLogAt = 0;
                 while (this.bot && this.status === 'online') {
                     // Emergency: check if any enemy is within 10 blocks
                     if (this.isEnemyNearby()) {
@@ -1399,7 +1401,32 @@ export class MinecraftBot {
                     reachableInScan++;
 
                     const block = this.bot.blockAt(pos);
-                    if (!block || block.name !== blockName) break;
+                    if (!block || block.name !== blockName) {
+                        if (targetSource === 'afkProfile') {
+                            if (!missingSince) {
+                                missingSince = Date.now();
+                                nextMissingLogAt = 0;
+                            }
+
+                            const now = Date.now();
+                            const missingElapsed = now - missingSince;
+                            if (missingElapsed < stackedDepletionConfirmMs) {
+                                if (now >= nextMissingLogAt) {
+                                    const waitSec = Math.ceil((stackedDepletionConfirmMs - missingElapsed) / 1000);
+                                    logger.info(
+                                        `Slot ${this.slot}: ${pos} stacked target temporary missing. Waiting ${waitSec}s for re-appearance.`
+                                    );
+                                    nextMissingLogAt = now + 5000;
+                                }
+                                await sleep(noTargetRescanDelay);
+                                continue;
+                            }
+                        }
+                        break;
+                    }
+
+                    missingSince = null;
+                    nextMissingLogAt = 0;
 
                     const breakResult = await this.breakBlockWithVerification(pos, blockName, {
                         breakDelay,
@@ -1449,6 +1476,15 @@ export class MinecraftBot {
 
                         if (brokenOnCurrentTarget > stackBatchSize) {
                             logger.info(`Slot ${this.slot}: ${pos} stacked target fully cleared (${brokenOnCurrentTarget} ${blockName}).`);
+                        }
+
+                        if (targetSource === 'afkProfile') {
+                            if (!missingSince) {
+                                missingSince = Date.now();
+                                nextMissingLogAt = 0;
+                            }
+                            await sleep(noTargetRescanDelay);
+                            continue;
                         }
                         break;
                     }

@@ -112,7 +112,7 @@ function normalizeConfig(config) {
         blockGoneStableMs: 500,
         blockGoneRecheckInterval: 100,
         stackBatchSize: 64,
-        stackedDepletionConfirmMs: 12000,
+        stackedDepletionConfirmMs: 30000,
         noTargetRescanDelay: 500,
         maxHitsPerBlock: 256,
         goneConfirmChecks: 3,
