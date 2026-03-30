@@ -87,8 +87,8 @@
             "blockGoneRecheckInterval": 100,
             "stackBatchSize": 64,
             "stackedDepletionConfirmMs": 30000,
-            "stackedExhaustionIdleMs": 120000,
-            "noTargetRescanDelay": 500,
+            "stackedExhaustionIdleMs": 180000,
+            "noTargetRescanDelay": 100,
             "maxHitsPerBlock": 256,
             "goneConfirmChecks": 3,
             "goneConfirmInterval": 50

@@ -352,10 +352,12 @@ export class MinecraftBot {
         return new this.bot.entity.position.constructor(x, y, z);
     }
 
-    getSavedSpawnerTargets(blockName, maxBlocksPerScan, radius) {
+    getSavedSpawnerTargets(blockName, maxBlocksPerScan, radius, options = {}) {
         if (!this.bot || !this.bot.entity) {
             return [];
         }
+
+        const includeMissing = options.includeMissing === true;
 
         const saved = this.afkProfile?.spawners;
         if (!Array.isArray(saved) || saved.length === 0) {
@@ -380,6 +382,11 @@ export class MinecraftBot {
                 continue;
             }
 
+            if (includeMissing) {
+                targets.push(pos);
+                continue;
+            }
+
             const block = this.bot.blockAt(pos);
             if (block && block.name === blockName) {
                 targets.push(pos);
@@ -389,8 +396,14 @@ export class MinecraftBot {
         return targets;
     }
 
-    getProtectionTargets(blockName, maxBlocksPerScan, radius) {
-        const savedTargets = this.getSavedSpawnerTargets(blockName, maxBlocksPerScan, radius);
+    getProtectionTargets(blockName, maxBlocksPerScan, radius, options = {}) {
+        const includeMissingSavedTargets = options.includeMissingSavedTargets === true;
+        const savedTargets = this.getSavedSpawnerTargets(
+            blockName,
+            maxBlocksPerScan,
+            radius,
+            { includeMissing: includeMissingSavedTargets }
+        );
         if (savedTargets.length > 0) {
             return { targets: savedTargets, source: 'afkProfile' };
         }
@@ -1265,8 +1278,8 @@ export class MinecraftBot {
             1000,
             protectionConfig.stackedDepletionConfirmMs ?? Math.max(30000, inventoryConfirmTimeout + 1000)
         );
-        const stackedExhaustionIdleMs = Math.max(5000, protectionConfig.stackedExhaustionIdleMs ?? 120000);
-        const noTargetRescanDelay = Math.max(100, protectionConfig.noTargetRescanDelay ?? 500);
+        const stackedExhaustionIdleMs = Math.max(5000, protectionConfig.stackedExhaustionIdleMs ?? 180000);
+        const noTargetRescanDelay = Math.max(50, protectionConfig.noTargetRescanDelay ?? 100);
         const hasSavedAfkTargets = Array.isArray(this.afkProfile?.spawners) && this.afkProfile.spawners.length > 0;
 
         // Small safety delay to allow maintenance/lobby messages to arrive.
@@ -1316,7 +1329,9 @@ export class MinecraftBot {
             }
 
             // Scan for spawners (prioritize /afkset saved coordinates first)
-            const targetResult = this.getProtectionTargets(blockName, maxBlocksPerScan, radius);
+            const targetResult = this.getProtectionTargets(blockName, maxBlocksPerScan, radius, {
+                includeMissingSavedTargets: hasSavedAfkTargets
+            });
             const blocks = targetResult.targets;
             const targetSource = targetResult.source;
 
@@ -1378,7 +1393,8 @@ export class MinecraftBot {
             );
 
             const sourceLabel = targetSource === 'afkProfile' ? 'AFK saved targets' : 'radius scan';
-            logger.info(`Slot ${this.slot}: Found ${blocks.length} ${blockName}(s) remaining (${sourceLabel}). Breaking...`);
+            const targetNoun = targetSource === 'afkProfile' ? 'saved target point(s)' : `${blockName}(s) remaining`;
+            logger.info(`Slot ${this.slot}: Found ${blocks.length} ${targetNoun} (${sourceLabel}). Breaking...`);
             let reachableInScan = 0;
             let brokeInScan = 0;
             let stackPendingInScan = 0;
@@ -1391,6 +1407,7 @@ export class MinecraftBot {
                 let brokenOnCurrentTarget = 0;
                 let missingSince = null;
                 let nextMissingLogAt = 0;
+                let noProgressSince = Date.now();
                 while (this.bot && this.status === 'online') {
                     // Emergency: check if any enemy is within 10 blocks
                     if (this.isEnemyNearby()) {
@@ -1465,6 +1482,7 @@ export class MinecraftBot {
                         const stillSameBlock = this.bot?.blockAt(pos)?.name === blockName;
                         const gained = this.getStackedBatchGain(breakResult, stillSameBlock, stackBatchSize);
                         lastBreakAt = Date.now();
+                        noProgressSince = Date.now();
                         totalBroken += gained;
                         brokeInScan += gained;
                         brokenOnCurrentTarget += gained;
@@ -1475,7 +1493,10 @@ export class MinecraftBot {
 
                         // If block still exists, this is likely a stacked spawner, keep hitting same block.
                         if (stillSameBlock) {
-                            hitsOnCurrentBlock++;
+                            const isPinnedTarget = targetSource === 'afkProfile' || brokenOnCurrentTarget > 0;
+                            if (!isPinnedTarget) {
+                                hitsOnCurrentBlock++;
+                            }
                             if (brokenOnCurrentTarget >= stackBatchSize && (brokenOnCurrentTarget % stackBatchSize) === 0) {
                                 logger.info(
                                     `Slot ${this.slot}: ${pos} stacked target drained chunk -> ${brokenOnCurrentTarget} ${blockName}(s) collected from this point.`
@@ -1509,7 +1530,16 @@ export class MinecraftBot {
 
                     if (breakResult.reason === 'stack_still_exists' || breakResult.reason === 'block_reappeared') {
                         stackPendingInScan++;
-                        hitsOnCurrentBlock++;
+                        const isPinnedTarget = targetSource === 'afkProfile' || brokenOnCurrentTarget > 0;
+                        if (!isPinnedTarget) {
+                            hitsOnCurrentBlock++;
+                        } else {
+                            if ((Date.now() - noProgressSince) >= stackedExhaustionIdleMs) {
+                                logger.warn(`Slot ${this.slot}: ${pos} stacked target gave no progress for too long. Moving on.`);
+                                break;
+                            }
+                            await sleep(noTargetRescanDelay);
+                        }
                         if (hitsOnCurrentBlock >= maxHitsPerBlock) {
                             logger.warn(`Slot ${this.slot}: Stack pending too long at ${pos}. Moving to next block.`);
                             break;
@@ -1524,7 +1554,16 @@ export class MinecraftBot {
 
                     if (breakResult.reason === 'ghost_block_persisted') {
                         logger.warn(`Slot ${this.slot}: ${blockName} at ${pos} still exists after retries.`);
-                        hitsOnCurrentBlock++;
+                        const isPinnedTarget = targetSource === 'afkProfile' || brokenOnCurrentTarget > 0;
+                        if (!isPinnedTarget) {
+                            hitsOnCurrentBlock++;
+                        } else {
+                            if ((Date.now() - noProgressSince) >= stackedExhaustionIdleMs) {
+                                logger.warn(`Slot ${this.slot}: ${pos} ghost stack gave no progress for too long. Moving on.`);
+                                break;
+                            }
+                            await sleep(noTargetRescanDelay);
+                        }
                         if (hitsOnCurrentBlock >= maxHitsPerBlock) break;
                         continue;
                     }
