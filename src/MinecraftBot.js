@@ -1,5 +1,8 @@
 import mineflayer from 'mineflayer';
 import logger from './utils/Logger.js';
+import { InventoryManager } from './minecraft/managers/InventoryManager.js';
+import { ActivityManager } from './minecraft/managers/ActivityManager.js';
+import { ConnectionManager } from './minecraft/managers/ConnectionManager.js';
 
 function formatDuration(ms) {
     const seconds = Math.floor(ms / 1000);
@@ -167,6 +170,10 @@ export class MinecraftBot {
 
         // Removed cached whitelist to allow dynamic updates from config in memory
         // this._cachedWhitelist = (this.config.settings.alertWhitelist || []).map(u => u.toLowerCase());
+
+        this.inventoryManager = new InventoryManager(this);
+        this.activityManager = new ActivityManager(this);
+        this.connectionManager = new ConnectionManager(this);
     }
 
     async start(startReason = 'manual') {
@@ -810,220 +817,31 @@ export class MinecraftBot {
     }
 
     startAntiAfk() {
-        if (this.antiAfkInterval) {
-            clearTimeout(this.antiAfkInterval);
-            this.antiAfkInterval = null;
-        }
-
-        const runTick = async () => {
-            if (!this.bot || this.status !== 'online' || this.isPaused || this.isEating || this._protectionRunning) {
-                this.antiAfkInterval = setTimeout(runTick, 10000);
-                return;
-            }
-
-            try {
-                const hasAfkAnchor = !!this.getAfkAnchor();
-                // 1. Rastgele Zıplama (%70 şans)
-                if (!hasAfkAnchor && Math.random() > 0.3) {
-                    this.bot.setControlState('jump', true);
-                    setTimeout(() => {
-                        if (this.bot) this.bot.setControlState('jump', false);
-                    }, 100 + Math.random() * 100);
-                }
-
-                // 2. Hafif Rastgele Bakış Değişikliği (%50 şans)
-                if (Math.random() > 0.5) {
-                    const currentYaw = this.bot.entity.yaw;
-                    const currentPitch = this.bot.entity.pitch;
-                    const newYaw = currentYaw + (Math.random() - 0.5) * 0.2;
-                    const newPitch = currentPitch + (Math.random() - 0.5) * 0.1;
-                    await this.bot.look(newYaw, newPitch, true);
-                }
-
-                // 3. Rastgele Bekleme Süresi (20 - 45 saniye arası)
-                const baseDelay = this.config.settings.antiAfkInterval || 30000;
-                const randomDelay = baseDelay * (0.8 + Math.random() * 0.7);
-                this.antiAfkInterval = setTimeout(runTick, randomDelay);
-
-            } catch (err) {
-                this.antiAfkInterval = setTimeout(runTick, 10000);
-            }
-        };
-
-        this.antiAfkInterval = setTimeout(runTick, 5000 + (this.slot * 2000));
+        this.activityManager.startAntiAfk();
     }
 
     getBestPickaxe() {
-        if (!this.bot) return null;
-
-        const pickaxes = this.bot.inventory.items().filter(item => item.name.includes('pickaxe'));
-        if (pickaxes.length === 0) return null;
-
-        pickaxes.sort((a, b) => getPickaxeScore(b) - getPickaxeScore(a));
-        return pickaxes[0];
+        return this.inventoryManager.getBestPickaxe();
     }
 
     async equipPickaxe(force = false) {
-        if (!this.bot) return;
-
-        const bestPickaxe = this.getBestPickaxe();
-        if (!bestPickaxe) return;
-
-        const heldItem = this.bot.inventory.slots[this.bot.getEquipmentDestSlot('hand')];
-        if (!force && heldItem && heldItem.name === bestPickaxe.name) return;
-
-        try {
-            await this.bot.equip(bestPickaxe, 'hand');
-            logger.info(`Slot ${this.slot}: Equipped ${bestPickaxe.name}`);
-        } catch (error) {
-            logger.error(`Slot ${this.slot}: Failed to equip pickaxe: ${error.message}`);
-        }
+        return this.inventoryManager.equipPickaxe(force);
     }
 
     async startAutoEat() {
-        const checkInterval = 5000;
-
-        const checkFood = async () => {
-            let nextDelay = checkInterval + (this.slot * 200); // Slotlar arası kaydırma
-
-            if (!this.bot || this.status !== 'online' || this.isPaused || this._protectionRunning) {
-                this.autoEatTimeout = setTimeout(checkFood, checkInterval);
-                return;
-            }
-
-            try {
-                // Ensure pickaxe is held if not eating
-                if (!this.isEating) {
-                    await this.equipPickaxe();
-                }
-
-                const food = this.bot.food;
-
-                if (food < 14) {
-                    const foodItem = this.bot.inventory.items().find(item =>
-                        FOOD_ITEMS.has(item.name)
-                    );
-
-                    if (foodItem) {
-                        this.isEating = true;
-
-                        // Wrap equip/consume in timeout promise to prevent hanging
-                        const eatTask = async () => {
-                            await this.bot.equip(foodItem, 'hand');
-                            await this.bot.consume();
-                        };
-
-                        const timeoutPromise = new Promise((_, reject) =>
-                            setTimeout(() => reject(new Error('Eat operation timed out')), 5000)
-                        );
-
-                        await Promise.race([eatTask(), timeoutPromise]);
-
-                        this.isEating = false;
-                        this.eatTimeoutCount = 0;
-                        logger.info(`Slot ${this.slot}: Ate ${foodItem.name} (food: ${food} -> ${this.bot.food})`);
-
-                        // Re-equip pickaxe immediately after eating
-                        await this.equipPickaxe();
-                    } else {
-                        logger.warn(`Slot ${this.slot}: Hungry (food: ${food}) but no food in inventory!`);
-                    }
-                }
-            } catch (error) {
-                this.isEating = false;
-                if (error.message.includes('Promise timed out') || error.message.includes('Eat operation timed out')) {
-                    this.eatTimeoutCount++;
-                    if (this.eatTimeoutCount <= 3) {
-                        logger.warn(`Slot ${this.slot}: Auto-eat timed out (${this.eatTimeoutCount}/3). Retrying in 30s.`);
-                    }
-                    // After 3 consecutive timeouts, go silent and retry less frequently
-                    nextDelay = this.eatTimeoutCount > 3 ? 60000 : 30000;
-                } else {
-                    logger.error(`Slot ${this.slot}: Auto-eat error: ${error.message}`);
-                    nextDelay = 10000;
-                }
-                // Attempt to re-equip pickaxe even if eat failed
-                await this.equipPickaxe();
-            } finally {
-                this.autoEatTimeout = setTimeout(checkFood, nextDelay);
-            }
-        };
-
-        this.autoEatTimeout = setTimeout(checkFood, checkInterval);
+        return this.activityManager.startAutoEat();
     }
 
     startProximityCheck() {
-        // Kontrol aralığını 1 saniyeden 2.5 saniyeye çıkarıyoruz (Yük azaltma)
-        const checkInterval = 2500 + (this.slot * 100);
-
-        this.proximityInterval = setInterval(() => {
-            if (!this.bot || this.status !== 'online' || this.isPaused || this.isInLobby) return;
-
-            const cooldown = this.config.settings.alertCooldown || 300000;
-            const now = Date.now();
-
-            // Performans için oyuncuları önceden filtrele
-            const currentWhitelist = (this.config.settings.alertWhitelist || []).map(u => u.toLowerCase());
-
-            const players = Object.values(this.bot.entities).filter(e =>
-                e.type === 'player' &&
-                e.username !== this.accountConfig.username &&
-                !currentWhitelist.includes(e.username.toLowerCase()) &&
-                e.position && this.bot.entity
-            );
-
-            for (const entity of players) {
-                const distance = this.bot.entity.position.distanceTo(entity.position);
-
-                // Emergency disconnect
-                const emergencyDistance = this.config.settings.protection?.emergencyDistance || 10;
-                if (distance <= emergencyDistance) {
-                    logger.error(`Slot ${this.slot}: 🚨 EMERGENCY: ${entity.username} at ${Math.round(distance)}m! DISCONNECTING! 🚨`);
-                    if (this.onProximityAlert) this.onProximityAlert(entity.username, distance);
-                    this._protectionRunning = false;
-                    this.stop();
-                    return;
-                }
-
-                const lastAlert = this.alertCooldowns.get(entity.username) || 0;
-                if (now - lastAlert > cooldown) {
-                    this.alertCooldowns.set(entity.username, now);
-                    logger.info(`Slot ${this.slot}: Threat detected (${entity.username} at ${Math.round(distance)}m).`);
-
-                    // Start protection for any non-whitelisted detected player (loaded range).
-                    this.executeProtection();
-
-                    this.stats.alertsTriggered++;
-                    if (this.onProximityAlert) this.onProximityAlert(entity.username, distance);
-                }
-            }
-        }, checkInterval);
+        this.activityManager.startProximityCheck();
     }
 
     isEnemyNearby() {
-        if (!this.bot || !this.bot.entity) return false;
-        const emergencyDistance = this.config.settings.protection?.emergencyDistance || 10;
-
-        const myUsername = this.accountConfig.username;
-        const currentWhitelist = (this.config.settings.alertWhitelist || []).map(u => u.toLowerCase());
-
-        for (const id in this.bot.entities) {
-            const entity = this.bot.entities[id];
-            if (entity.type !== 'player' || entity.username === myUsername) continue;
-            if (currentWhitelist.includes(entity.username.toLowerCase())) continue;
-            if (!entity.position) continue;
-
-            const dist = this.bot.entity.position.distanceTo(entity.position);
-            if (dist <= emergencyDistance) return true;
-        }
-        return false;
+        return this.activityManager.isEnemyNearby();
     }
 
     getSpawnerItemCount() {
-        if (!this.bot) return 0;
-        return this.bot.inventory.items()
-            .filter(item => item?.name?.includes('spawner'))
-            .reduce((sum, item) => sum + (item.count || 0), 0);
+        return this.inventoryManager.getSpawnerItemCount();
     }
 
     async naturalLookAtBlock(pos, options = {}) {
@@ -1867,380 +1685,58 @@ export class MinecraftBot {
     }
 
     startInventoryMonitor() {
-        if (this.inventoryMonitorInterval) {
-            clearInterval(this.inventoryMonitorInterval);
-        }
-
-        this.inventoryAlertSent = false;
-        this.toolAlertSent.clear();
-
-        this.inventoryMonitorInterval = setInterval(() => {
-            if (!this.bot || this.status !== 'online' || this.isPaused || this.isInLobby) return;
-
-            // Check inventory fullness
-            const totalSlots = 36;
-            const emptySlots = this.bot.inventory.emptySlotCount();
-            const usedSlots = totalSlots - emptySlots;
-            const fillPercent = Math.round((usedSlots / totalSlots) * 100);
-
-            if (emptySlots <= 3 && !this.inventoryAlertSent) {
-                this.inventoryAlertSent = true;
-                const msg = emptySlots === 0
-                    ? `📦 **Slot ${this.slot}:** Envanter **DOLU!** (${usedSlots}/${totalSlots})`
-                    : `📦 **Slot ${this.slot}:** Envanter neredeyse dolu! (${usedSlots}/${totalSlots} - ${emptySlots} slot kaldı)`;
-                if (this.onInventoryAlert) this.onInventoryAlert(msg);
-            } else if (emptySlots > 5) {
-                this.inventoryAlertSent = false;
-            }
-
-            // Check tool durability
-            const tools = this.bot.inventory.items().filter(item =>
-                item.name.includes('pickaxe') || item.name.includes('sword') ||
-                item.name.includes('axe') || item.name.includes('shovel')
-            );
-
-            for (const tool of tools) {
-                if (tool.durabilityUsed !== undefined && tool.maxDurability) {
-                    const remaining = tool.maxDurability - tool.durabilityUsed;
-                    const percent = Math.round((remaining / tool.maxDurability) * 100);
-
-                    if (percent <= 10 && !this.toolAlertSent.has(tool.slot)) {
-                        this.toolAlertSent.add(tool.slot);
-                        const msg = `⚠️ **Slot ${this.slot}:** **${tool.name}** dayanıklılığı çok düşük! (%${percent} - ${remaining}/${tool.maxDurability})`;
-                        if (this.onInventoryAlert) this.onInventoryAlert(msg);
-                    }
-                }
-
-                // nbt-based durability check (mineflayer stores it in nbt)
-                if (tool.nbt?.value?.Damage?.value !== undefined) {
-                    const maxDur = getMaxDurability(tool.name);
-                    if (maxDur) {
-                        const damage = tool.nbt.value.Damage.value;
-                        const remaining = maxDur - damage;
-                        const percent = Math.round((remaining / maxDur) * 100);
-
-                        if (percent <= 10 && !this.toolAlertSent.has(tool.slot)) {
-                            this.toolAlertSent.add(tool.slot);
-                            const msg = `⚠️ **Slot ${this.slot}:** **${tool.name}** dayanıklılığı çok düşük! (%${percent})`;
-                            if (this.onInventoryAlert) this.onInventoryAlert(msg);
-                        }
-                    }
-                }
-            }
-        }, 60000); // Check every 60 seconds
+        this.inventoryManager.startInventoryMonitor();
     }
 
     resolveDisplayStatus() {
-        // In some short race windows, internal status may still be "offline/connecting"
-        // even though protocol state is already in play. Prefer runtime client state.
-        const clientState = this.bot?._client?.state;
-        if ((this.status === 'offline' || this.status === 'connecting') && clientState === 'play') {
-            return 'online';
-        }
-        return this.status;
+        return this.connectionManager.resolveDisplayStatus();
     }
 
     getStats() {
-        let currentUptime = this.stats.totalUptime;
-        if (this.stats.connectedAt) {
-            currentUptime += Date.now() - this.stats.connectedAt;
-        }
-
-        const totalSessionTime = Date.now() - this.stats.sessionStart;
-
-        return {
-            slot: this.slot,
-            username: this.accountConfig.username,
-            status: this.resolveDisplayStatus(),
-            uptime: currentUptime,
-            uptimeFormatted: formatDuration(currentUptime),
-            sessionTime: totalSessionTime,
-            sessionTimeFormatted: formatDuration(totalSessionTime),
-            reconnects: this.stats.reconnects,
-            spawnersBroken: this.stats.spawnersBroken,
-            alertsTriggered: this.stats.alertsTriggered,
-            lobbyEvents: this.stats.lobbyEvents,
-            lastDisconnect: this.stats.lastDisconnect,
-        };
+        return this.connectionManager.getStats();
     }
 
     handleReconnect() {
-        if (this.manualStopRequested) {
-            logger.info(`Slot ${this.slot}: Reconnect skipped - manual stop lock is active`);
-            return;
-        }
-
-        if (this.isManuallyStopped) {
-            logger.info(`Slot ${this.slot}: Reconnect skipped - bot was manually stopped`);
-            return;
-        }
-
-        if (this.isConnecting || this.bot) {
-            logger.info(`Slot ${this.slot}: Reconnect skipped - bot is already connecting/online`);
-            return;
-        }
-
-        let delay = this.tempReconnectDelay || this.config.settings.reconnectDelay || 5000;
-        this.tempReconnectDelay = null;
-        const maxAttempts = this.config.settings.maxReconnectAttempts ?? 10;
-        const permanentRetry = this.config.settings.permanentRetryAfterMaxReconnect ?? false;
-
-        // Prevent duplicate queued reconnect timers for the same slot.
-        if (this.reconnectTimeout) {
-            clearTimeout(this.reconnectTimeout);
-            this.reconnectTimeout = null;
-        }
-        const scheduledId = ++this.reconnectScheduleId;
-
-        if (this.reconnectAttempts >= maxAttempts) {
-            if (permanentRetry) {
-                logger.warn(`Slot ${this.slot}: Max reconnect attempts (${maxAttempts}) reached. Entering permanent retry mode (60s interval).`);
-                delay = 60000; // 60 seconds sticky interval
-            } else {
-                logger.error(`Slot ${this.slot}: Max reconnect attempts (${maxAttempts}) reached. Auto-reconnect stopped.`);
-                this.isManuallyStopped = true;
-                return;
-            }
-        } else {
-            this.reconnectAttempts++;
-            logger.info(`Slot ${this.slot}: Reconnecting in ${delay / 1000}s (attempt ${this.reconnectAttempts}/${maxAttempts})`);
-        }
-
-        this.reconnectTimeout = setTimeout(() => {
-            this.reconnectTimeout = null;
-            if (
-                scheduledId === this.reconnectScheduleId &&
-                !this.isManuallyStopped &&
-                !this.isConnecting &&
-                !this.bot
-            ) {
-                this.start('reconnect');
-            }
-        }, delay);
+        this.connectionManager.handleReconnect();
     }
 
     async stop() {
-        this.manualStopRequested = true;
-        this.isManuallyStopped = true;
-        this.reconnectScheduleId++;
-
-        if (this.reconnectTimeout) {
-            clearTimeout(this.reconnectTimeout);
-            this.reconnectTimeout = null;
-        }
-
-        logger.info(`Slot ${this.slot}: Stopping bot`);
-
-        if (this.bot) {
-            this.bot.quit();
-        }
-        this.cleanup();
-        return true;
+        return this.connectionManager.stop();
     }
 
     pause() {
-        if (!this.bot) {
-            logger.warn(`Slot ${this.slot}: Bot is not running`);
-            return false;
-        }
-
-        this.isPaused = true;
-        logger.info(`Slot ${this.slot}: Bot paused`);
-        return true;
+        return this.connectionManager.pause();
     }
 
     resume() {
-        if (!this.bot) {
-            logger.warn(`Slot ${this.slot}: Bot is not running`);
-            return false;
-        }
-
-        this.isPaused = false;
-        logger.info(`Slot ${this.slot}: Bot resumed`);
-        return true;
+        return this.connectionManager.resume();
     }
 
     async restart() {
-        logger.info(`Slot ${this.slot}: Restarting bot`);
-        await this.stop();
-
-        setTimeout(() => {
-            this.start('restart');
-        }, 2000);
-
-        return true;
+        return this.connectionManager.restart();
     }
 
     async move(direction, distance) {
-        if (!this.bot || this.status !== 'online' || this.isPaused) {
-            return { success: false, message: 'Bot not ready' };
-        }
-
-        const validDirections = ['forward', 'back', 'left', 'right'];
-        if (!validDirections.includes(direction)) {
-            return { success: false, message: 'Invalid direction' };
-        }
-
-        if (isNaN(distance) || distance <= 0) {
-            return { success: false, message: 'Invalid distance' };
-        }
-
-        const startPos = this.bot.entity.position.clone();
-        this.bot.setControlState(direction, true);
-
-        return new Promise((resolve) => {
-            let isResolved = false;
-
-            const checkInterval = setInterval(() => {
-                if (!this.bot) {
-                    clearInterval(checkInterval);
-                    if (!isResolved) {
-                        isResolved = true;
-                        resolve({ success: false, message: 'Bot disconnected' });
-                    }
-                    return;
-                }
-
-                const currentDist = this.bot.entity.position.distanceTo(startPos);
-
-                if (currentDist >= distance) {
-                    this.bot.setControlState(direction, false);
-                    clearInterval(checkInterval);
-                    if (!isResolved) {
-                        isResolved = true;
-                        resolve({ success: true, message: `Moved ${direction} ${Math.round(currentDist)} blocks` });
-                    }
-                }
-            }, 50);
-
-            const timeoutMs = (distance * 1000) + 2000;
-            setTimeout(() => {
-                if (!isResolved) {
-                    clearInterval(checkInterval);
-                    if (this.bot) {
-                        this.bot.setControlState(direction, false);
-                    }
-                    isResolved = true;
-                    const moved = this.bot ? Math.round(this.bot.entity.position.distanceTo(startPos)) : 0;
-                    resolve({ success: true, message: `Movement timed out (moved ${moved} blocks)` });
-                }
-            }, timeoutMs);
-        });
+        return this.connectionManager.move(direction, distance);
     }
 
     async sendChat(message) {
-        if (!this.bot || this.status !== 'online' || this.isPaused) {
-            logger.warn(`Slot ${this.slot}: Cannot send chat message - bot not ready`);
-            return false;
-        }
-
-        try {
-            // Check if sneaking
-            const isSneaking = this.bot.getControlState('sneak');
-
-            if (isSneaking) {
-                this.bot.setControlState('sneak', false);
-                await new Promise(resolve => setTimeout(resolve, 100)); // Wait for server to process unsneak
-            }
-
-            this.bot.chat(message);
-            logger.info(`Slot ${this.slot}: Sent message: ${message}`);
-
-            if (isSneaking) {
-                await new Promise(resolve => setTimeout(resolve, 100)); // Wait for message to be sent
-                this.bot.setControlState('sneak', true);
-            }
-
-            return true;
-        } catch (error) {
-            logger.error(`Slot ${this.slot}: Failed to send message: ${error.message}`);
-            return false;
-        }
+        return this.connectionManager.sendChat(message);
     }
 
     getInventory() {
-        if (!this.bot || this.status !== 'online') {
-            return null;
-        }
-
-        return this.bot.inventory.items().map(item => ({
-            name: item.name,
-            count: item.count,
-            slot: item.slot
-        }));
+        return this.inventoryManager.getInventory();
     }
 
     async dropItem(itemName, count = null) {
-        if (!this.bot || this.status !== 'online') {
-            return { success: false, message: 'Bot not ready' };
-        }
-
-        try {
-            const items = this.bot.inventory.items().filter(item =>
-                itemName === 'all' || item.name.includes(itemName)
-            );
-
-            if (items.length === 0) {
-                return { success: false, message: 'Item not found' };
-            }
-
-            const droppedItems = [];
-
-            for (const item of items) {
-                const dropCount = count || item.count;
-                await this.bot.toss(item.type, null, dropCount);
-                logger.info(`Slot ${this.slot}: Dropped ${dropCount}x ${item.name}`);
-                droppedItems.push(`${dropCount}x ${item.name}`);
-            }
-
-            return {
-                success: true,
-                message: `Dropped: ${droppedItems.join(', ')}`
-            };
-        } catch (error) {
-            logger.error(`Slot ${this.slot}: Failed to drop item: ${error.message}`);
-            return { success: false, message: error.message };
-        }
+        return this.inventoryManager.dropItem(itemName, count);
     }
 
     cleanup() {
-        if (this.antiAfkInterval) {
-            clearTimeout(this.antiAfkInterval);
-            this.antiAfkInterval = null;
-        }
-        if (this.proximityInterval) {
-            clearInterval(this.proximityInterval);
-            this.proximityInterval = null;
-        }
-        if (this.autoEatTimeout) {
-            clearTimeout(this.autoEatTimeout);
-            this.autoEatTimeout = null;
-        }
-        if (this.inventoryMonitorInterval) {
-            clearInterval(this.inventoryMonitorInterval);
-            this.inventoryMonitorInterval = null;
-        }
-        this.stopAfkDriftCheck();
-        this.stopLobbyRetry();
-        this.isInLobby = false;
-        this.lastProtectionTargetPos = null;
-
-        this.bot = null;
-        this.status = 'offline';
+        this.connectionManager.cleanup();
     }
 
     getStatus() {
-        const resolvedStatus = this.resolveDisplayStatus();
-        return {
-            slot: this.slot,
-            username: this.accountConfig.username,
-            status: resolvedStatus,
-            isPaused: this.isPaused,
-            protectionEnabled: this.protectionEnabled,
-            reconnectAttempts: this.reconnectAttempts,
-            health: this.bot?.health,
-            food: this.bot?.food,
-            position: this.bot?.entity?.position
-        };
+        return this.connectionManager.getStatus();
     }
 }

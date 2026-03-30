@@ -2,8 +2,8 @@ import logger from './Logger.js';
 
 export class Auth {
     constructor(config) {
-        this.telegramAllowedUsers = config.telegram?.allowedUsers || [];
-        this.discordAllowedUsers = config.discord?.allowedUsers || [];
+        this.telegramAllowedUsers = (config.telegram?.allowedUsers || []).map(String);
+        this.discordAllowedUsers = (config.discord?.allowedUsers || []).map(String);
         this.discordGuildId = config.discord?.guildId || null;
     }
 
@@ -12,7 +12,7 @@ export class Auth {
             logger.warn('No Telegram users are whitelisted. Anyone can control the bot!');
             return true;
         }
-        return this.telegramAllowedUsers.includes(userId);
+        return this.telegramAllowedUsers.includes(String(userId));
     }
 
     isDiscordUserAuthorized(userId, guildId) {
@@ -26,6 +26,6 @@ export class Auth {
             return false;
         }
 
-        return this.discordAllowedUsers.includes(userId);
+        return this.discordAllowedUsers.includes(String(userId));
     }
 }
