@@ -10,13 +10,16 @@ export interface MinecraftAccount {
   autoStart?: boolean;
   afkProfile?: AfkProfile;
   protectionEnabled?: boolean;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  onMsaCode?: (data: any) => void;
 }
 
 // AFK profile for position management
 export interface AfkProfile {
   anchor: Position;
   spawners: Position[];
-  recordedAt: number;
+  recordedAt?: number;
+  updatedAt?: string;
 }
 
 export interface Position {
