@@ -1119,6 +1119,7 @@ export class MinecraftBot {
         const naturalLookStepDelay = Math.max(0, options.naturalLookStepDelay ?? 20);
         const naturalLookJitter = Math.max(0, options.naturalLookJitter ?? 0.01);
         const preDigPause = Math.max(0, options.preDigPause ?? 35);
+        const skipLook = options.skipLook === true;
         const blockGoneStableMs = Math.max(0, options.blockGoneStableMs ?? 500);
         const blockGoneRecheckInterval = Math.max(20, options.blockGoneRecheckInterval ?? 100);
 
@@ -1139,13 +1140,15 @@ export class MinecraftBot {
             const spawnerBefore = this.getSpawnerItemCount();
 
             try {
-                await this.naturalLookAtBlock(pos, {
-                    naturalLookEnabled,
-                    naturalLookSteps,
-                    naturalLookStepDelay,
-                    naturalLookJitter,
-                    preDigPause
-                });
+                if (!skipLook) {
+                    await this.naturalLookAtBlock(pos, {
+                        naturalLookEnabled,
+                        naturalLookSteps,
+                        naturalLookStepDelay,
+                        naturalLookJitter,
+                        preDigPause
+                    });
+                }
                 await this.bot.dig(block, false);
             } catch (error) {
                 if (attempt >= breakRetryCount) {
@@ -1244,8 +1247,8 @@ export class MinecraftBot {
         const stackedTargetMissingConfirmMs = Math.max(1000, protectionConfig.stackedTargetMissingConfirmMs ?? 8000);
         const stackedExhaustionIdleMs = Math.max(5000, protectionConfig.stackedExhaustionIdleMs ?? 300000);
         const noTargetRescanDelay = Math.max(50, protectionConfig.noTargetRescanDelay ?? 100);
-        const stackedNoGainRetryDelay = Math.max(250, protectionConfig.stackedNoGainRetryDelay ?? 5000);
-        const stackedNoGainBackoffAfter = Math.max(1, protectionConfig.stackedNoGainBackoffAfter ?? 2);
+        const stackedNoGainRetryDelay = Math.max(100, protectionConfig.stackedNoGainRetryDelay ?? 350);
+        const stackedNoGainBackoffAfter = Math.max(1, protectionConfig.stackedNoGainBackoffAfter ?? 8);
         const hasSavedAfkTargets = Array.isArray(this.afkProfile?.spawners) && this.afkProfile.spawners.length > 0;
 
         const breakOptions = {
@@ -1259,11 +1262,11 @@ export class MinecraftBot {
                 protectionConfig.inventoryConfirmDelay ??
                 80
             ),
-            inventoryConfirmPollInterval: Math.max(20, protectionConfig.inventoryConfirmPollInterval ?? 250),
+            inventoryConfirmPollInterval: Math.max(20, protectionConfig.inventoryConfirmPollInterval ?? 100),
             goneConfirmChecks: Math.max(1, protectionConfig.goneConfirmChecks ?? 3),
             goneConfirmInterval: Math.max(0, protectionConfig.goneConfirmInterval ?? 50),
             stackedFastMode: protectionConfig.stackedFastMode !== false,
-            stackedFastGraceMs: Math.max(0, protectionConfig.stackedFastGraceMs ?? 150),
+            stackedFastGraceMs: Math.max(0, protectionConfig.stackedFastGraceMs ?? 900),
             naturalLookEnabled: protectionConfig.naturalLookEnabled !== false,
             naturalLookSteps: Math.max(1, protectionConfig.naturalLookSteps ?? 4),
             naturalLookStepDelay: Math.max(0, protectionConfig.naturalLookStepDelay ?? 20),
@@ -1376,6 +1379,7 @@ export class MinecraftBot {
                     let missingSince = null;
                     let noGainStreak = 0;
                     let targetLastGainAt = Date.now();
+                    let hasAimedAtTarget = false;
 
                     while (this.bot && this.status === 'online') {
                         if (this.isInLobby) {
@@ -1410,7 +1414,11 @@ export class MinecraftBot {
 
                         missingSince = null;
 
-                        const breakResult = await this.breakBlockWithVerification(pos, blockName, breakOptions);
+                        const breakResult = await this.breakBlockWithVerification(pos, blockName, {
+                            ...breakOptions,
+                            skipLook: hasAimedAtTarget
+                        });
+                        hasAimedAtTarget = true;
                         if (breakResult.broken) {
                             const stillSameBlock = this.bot?.blockAt(pos)?.name === blockName;
                             const gainedByInventory = Math.max(0, Number(breakResult.gained || 0));
