@@ -1129,6 +1129,21 @@ export class MinecraftBot {
         const blockGoneRecheckInterval = Math.max(20, options.blockGoneRecheckInterval ?? 100);
 
         for (let attempt = 0; attempt <= breakRetryCount; attempt++) {
+            let digSettled = true;
+            const releaseDigIfPending = async (withDelay = true) => {
+                if (!digSettled && this.bot && typeof this.bot.stopDigging === 'function') {
+                    try {
+                        this.bot.stopDigging();
+                    } catch (_) {
+                        // Ignore stopDigging transport errors.
+                    }
+                    digSettled = true;
+                    if (withDelay && postDigReleaseDelay > 0) {
+                        await sleep(postDigReleaseDelay);
+                    }
+                }
+            };
+
             if (!this.bot || this.status !== 'online') {
                 return { broken: false, reason: 'bot_not_ready' };
             }
@@ -1163,7 +1178,7 @@ export class MinecraftBot {
                         });
                     }
                 }
-                let digSettled = false;
+                digSettled = false;
                 let digError = null;
                 const digPromise = this.bot.dig(block, forceLookForDig, digFace)
                     .then(() => {
@@ -1181,20 +1196,12 @@ export class MinecraftBot {
                 ]);
 
                 if (!digSettled) {
-                    if (typeof this.bot.stopDigging === 'function') {
-                        try {
-                            this.bot.stopDigging();
-                        } catch (_) {
-                            // Ignore stopDigging transport errors and continue verification.
-                        }
-                    }
-                    if (postDigReleaseDelay > 0) {
-                        await sleep(postDigReleaseDelay);
-                    }
+                    await releaseDigIfPending(true);
                 } else if (digError) {
                     throw digError;
                 }
             } catch (error) {
+                await releaseDigIfPending(true);
                 if (attempt >= breakRetryCount) {
                     return { broken: false, reason: 'dig_error', error };
                 }
@@ -1210,6 +1217,7 @@ export class MinecraftBot {
             while ((Date.now() - confirmStart) <= inventoryConfirmTimeout) {
                 const spawnerAfter = this.getSpawnerItemCount();
                 if (spawnerAfter > spawnerBefore) {
+                    await releaseDigIfPending(true);
                     return { broken: true, byInventory: true, gained: spawnerAfter - spawnerBefore };
                 }
 
@@ -1222,6 +1230,7 @@ export class MinecraftBot {
 
                 // Fast stacked mode: if block still exists shortly after dig, keep hitting immediately.
                 if (stackedFastMode && (Date.now() - confirmStart) >= stackedFastGraceMs) {
+                    await releaseDigIfPending(true);
                     return { broken: false, reason: 'stack_still_exists' };
                 }
 
@@ -1251,14 +1260,17 @@ export class MinecraftBot {
                 while ((Date.now() - stableStart) <= blockGoneStableMs) {
                     const lateCheck = this.bot?.blockAt(pos);
                     if (lateCheck && lateCheck.name === blockName) {
+                        await releaseDigIfPending(true);
                         return { broken: false, reason: 'block_reappeared' };
                     }
                     await sleep(blockGoneRecheckInterval);
                 }
+                await releaseDigIfPending(true);
                 return { broken: true, byInventory: false, gained: 0 };
             }
 
             if (sawDisappearDuringConfirm) {
+                await releaseDigIfPending(true);
                 return { broken: false, reason: 'block_reappeared' };
             }
 
