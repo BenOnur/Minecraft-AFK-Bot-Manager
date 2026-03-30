@@ -1122,6 +1122,7 @@ export class MinecraftBot {
         const skipLook = options.skipLook === true;
         const alwaysRealignAim = options.alwaysRealignAim !== false;
         const forceLookForDig = options.forceLookForDig !== false;
+        const digFace = options.digFace ?? 'raycast';
         const digActionTimeout = Math.max(150, options.digActionTimeout ?? 650);
         const postDigReleaseDelay = Math.max(0, options.postDigReleaseDelay ?? 25);
         const blockGoneStableMs = Math.max(0, options.blockGoneStableMs ?? 500);
@@ -1148,9 +1149,9 @@ export class MinecraftBot {
                 if (!skipLook || alwaysRealignAim) {
                     if (skipLook && alwaysRealignAim) {
                         // Re-aim every swing so stacked-spawner plugins treat each click as valid.
-                        await this.bot.lookAt(digTarget, false);
+                        await this.bot.lookAt(digTarget, true);
                         if (preDigPause > 0) {
-                            await sleep(Math.min(preDigPause, 20));
+                            await sleep(Math.max(45, Math.min(preDigPause, 120)));
                         }
                     } else {
                         await this.naturalLookAtBlock(pos, {
@@ -1164,7 +1165,7 @@ export class MinecraftBot {
                 }
                 let digSettled = false;
                 let digError = null;
-                const digPromise = this.bot.dig(block, forceLookForDig)
+                const digPromise = this.bot.dig(block, forceLookForDig, digFace)
                     .then(() => {
                         digSettled = true;
                     })
@@ -1487,9 +1488,9 @@ export class MinecraftBot {
                         const adaptiveConfirmTimeout = shouldDeepProbe
                             ? Math.max(2500, breakOptions.inventoryConfirmTimeout)
                             : breakOptions.inventoryConfirmTimeout;
-                        const maxDigHoldMs = Math.max(1200, Math.min(7000, breakOptions.digActionTimeout));
-                        const mediumDigHoldMs = Math.max(1600, Math.min(maxDigHoldMs, 2400));
-                        const fastDigHoldMs = Math.max(900, Math.min(maxDigHoldMs, 1400));
+                        const maxDigHoldMs = Math.max(3000, Math.min(7000, breakOptions.digActionTimeout));
+                        const mediumDigHoldMs = Math.max(2400, Math.min(maxDigHoldMs, 3400));
+                        const fastDigHoldMs = Math.max(1800, Math.min(maxDigHoldMs, 2600));
                         let adaptiveDigTimeout = fastDigHoldMs;
                         if (noGainStreak >= 3) {
                             adaptiveDigTimeout = mediumDigHoldMs;
@@ -1506,6 +1507,7 @@ export class MinecraftBot {
                             skipLook: quickFollowUpSwing,
                             alwaysRealignAim: true,
                             forceLookForDig: true,
+                            digFace: 'raycast',
                             // Stacked-spawner servers often need longer sustained hold; avoid early fast-exit.
                             stackedFastMode: false,
                             inventoryConfirmTimeout: adaptiveConfirmTimeout,
