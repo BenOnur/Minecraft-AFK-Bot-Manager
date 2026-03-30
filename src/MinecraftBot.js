@@ -1153,14 +1153,55 @@ export class MinecraftBot {
 
             if (packetDigEnabled) {
                 const packetConfirmStart = Date.now();
+                let sawDisappearDuringPacketConfirm = false;
                 while ((Date.now() - packetConfirmStart) <= inventoryConfirmTimeout) {
                     const spawnerAfter = this.getSpawnerItemCount();
                     if (spawnerAfter > spawnerBefore) {
                         await releaseDigIfPending(true);
                         return { broken: true, byInventory: true, gained: spawnerAfter - spawnerBefore };
                     }
+
+                    const packetCheckBlock = this.bot?.blockAt(pos);
+                    if (!packetCheckBlock || packetCheckBlock.name !== blockName) {
+                        sawDisappearDuringPacketConfirm = true;
+                        break;
+                    }
+
                     await sleep(inventoryConfirmPollInterval);
                 }
+
+                if (sawDisappearDuringPacketConfirm) {
+                    if (verifyDelay > 0) {
+                        await sleep(verifyDelay);
+                    }
+
+                    let stillExists = false;
+                    for (let i = 0; i < goneConfirmChecks; i++) {
+                        if (i > 0 && goneConfirmInterval > 0) {
+                            await sleep(goneConfirmInterval);
+                        }
+                        const verifyBlock = this.bot?.blockAt(pos);
+                        if (verifyBlock && verifyBlock.name === blockName) {
+                            stillExists = true;
+                            break;
+                        }
+                    }
+
+                    if (!stillExists) {
+                        const stableStart = Date.now();
+                        while ((Date.now() - stableStart) <= blockGoneStableMs) {
+                            const lateCheck = this.bot?.blockAt(pos);
+                            if (lateCheck && lateCheck.name === blockName) {
+                                await releaseDigIfPending(true);
+                                return { broken: false, reason: 'block_reappeared' };
+                            }
+                            await sleep(blockGoneRecheckInterval);
+                        }
+                        await releaseDigIfPending(true);
+                        return { broken: true, byInventory: false, gained: 0 };
+                    }
+                }
+
                 await releaseDigIfPending(true);
                 return { broken: false, reason: 'stack_still_exists' };
             }
@@ -1290,7 +1331,9 @@ export class MinecraftBot {
             preDigPause: Math.max(0, protectionConfig.preDigPause ?? 35),
             packetDigEnabled,
             packetDigPulseMs: Math.max(45, protectionConfig.packetDigPulseMs ?? 120),
-            packetDigRestartMs: Math.max(0, protectionConfig.packetDigRestartMs ?? 0),
+            packetDigRestartMs: protectionConfig.packetDigRestartMs === undefined
+                ? 320
+                : Math.max(0, protectionConfig.packetDigRestartMs),
             // Hold left-click long enough for stacked-spawner plugin break windows.
             digActionTimeout: packetDigEnabled
                 ? Math.max(8000, protectionConfig.digActionTimeout ?? 9000)
@@ -1462,6 +1505,11 @@ export class MinecraftBot {
                         }
 
                         const activePacketDig = packetDigRuntimeEnabled;
+                        const adaptivePacketRestartMs = activePacketDig
+                            ? (noGainStreak >= 2
+                                ? Math.max(220, breakOptions.packetDigRestartMs || 0)
+                                : breakOptions.packetDigRestartMs)
+                            : breakOptions.packetDigRestartMs;
                         const quickFollowUpSwing = activePacketDig ? false : hasAimedAtTarget;
                         const shouldDeepProbe = noGainStreak > 0 && (noGainStreak % 8 === 0);
                         const adaptiveConfirmTimeout = activePacketDig
@@ -1498,6 +1546,7 @@ export class MinecraftBot {
                         const breakResult = await this.breakBlockWithVerification(pos, blockName, {
                             ...breakOptions,
                             packetDigEnabled: activePacketDig,
+                            packetDigRestartMs: adaptivePacketRestartMs,
                             breakRetryCount: activePacketDig ? 0 : Math.max(2, breakOptions.breakRetryCount),
                             skipLook: quickFollowUpSwing,
                             alwaysRealignAim: true,
