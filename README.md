@@ -248,7 +248,8 @@ Koruma acik oldugunda:
 - `settings.protection.radius` icindeki spawner koordinatlari `afkProfile.spawners` listesine yazilir.
 - Stacked kirma chunk boyutu `settings.protection.stackBatchSize` (varsayilan `64`) ile ayarlanabilir.
 - AFK kayitli hedeflerde gorunur spawner bir an kaybolursa bot hemen geri donmez; `settings.protection.stackedDepletionConfirmMs` (varsayilan `30000`) suresi boyunca ayni noktayi tekrar tarar.
-- Son kirmadan hemen sonra target gorunmezse erken retreat engeli icin `settings.protection.stackedExhaustionIdleMs` (varsayilan `180000`) boyunca tekrar deneme yapar.
+- Son kirmadan hemen sonra target gorunmezse erken retreat engeli icin `settings.protection.stackedExhaustionIdleMs` (varsayilan `45000`) boyunca tekrar deneme yapar.
+- Tek bir hedef anlik kayboldugunda o hedefte kisa sureli bekleme penceresi `settings.protection.stackedTargetMissingConfirmMs` (varsayilan `8000`) ile yonetilir.
 - Slot AFK anchor'dan 20+ blok uzaklasirsa lobby kabul edilir.
 - Lobby modundayken bot `/home sp` komutunu hemen, sonrasinda 2 dakikada bir yollar.
 

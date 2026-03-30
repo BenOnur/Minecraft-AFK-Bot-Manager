@@ -1278,7 +1278,8 @@ export class MinecraftBot {
             1000,
             protectionConfig.stackedDepletionConfirmMs ?? Math.max(30000, inventoryConfirmTimeout + 1000)
         );
-        const stackedExhaustionIdleMs = Math.max(5000, protectionConfig.stackedExhaustionIdleMs ?? 180000);
+        const stackedExhaustionIdleMs = Math.max(5000, protectionConfig.stackedExhaustionIdleMs ?? 45000);
+        const stackedTargetMissingConfirmMs = Math.max(1000, protectionConfig.stackedTargetMissingConfirmMs ?? 8000);
         const noTargetRescanDelay = Math.max(50, protectionConfig.noTargetRescanDelay ?? 100);
         const hasSavedAfkTargets = Array.isArray(this.afkProfile?.spawners) && this.afkProfile.spawners.length > 0;
 
@@ -1330,7 +1331,7 @@ export class MinecraftBot {
 
             // Scan for spawners (prioritize /afkset saved coordinates first)
             const targetResult = this.getProtectionTargets(blockName, maxBlocksPerScan, radius, {
-                includeMissingSavedTargets: hasSavedAfkTargets
+                includeMissingSavedTargets: false
             });
             const blocks = targetResult.targets;
             const targetSource = targetResult.source;
@@ -1431,7 +1432,7 @@ export class MinecraftBot {
 
                     const block = this.bot.blockAt(pos);
                     if (!block || block.name !== blockName) {
-                        const shouldWatchForRespawn = targetSource === 'afkProfile' || brokenOnCurrentTarget > 0;
+                        const shouldWatchForRespawn = (targetSource === 'afkProfile' && brokenOnCurrentTarget > 0);
                         if (shouldWatchForRespawn) {
                             if (!missingSince) {
                                 missingSince = Date.now();
@@ -1440,9 +1441,9 @@ export class MinecraftBot {
 
                             const now = Date.now();
                             const missingElapsed = now - missingSince;
-                            if (missingElapsed < stackedDepletionConfirmMs) {
+                            if (missingElapsed < stackedTargetMissingConfirmMs) {
                                 if (now >= nextMissingLogAt) {
-                                    const waitSec = Math.ceil((stackedDepletionConfirmMs - missingElapsed) / 1000);
+                                    const waitSec = Math.ceil((stackedTargetMissingConfirmMs - missingElapsed) / 1000);
                                     logger.info(
                                         `Slot ${this.slot}: ${pos} stacked target temporary missing. Waiting ${waitSec}s for re-appearance.`
                                     );
