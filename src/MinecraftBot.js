@@ -1341,6 +1341,7 @@ export class MinecraftBot {
 
         let totalBroken = 0;
         let lastGainAt = 0;
+        let lastProgressTargetPos = null;
         let noTargetSince = null;
         let completedByClearingTargets = false;
 
@@ -1405,6 +1406,14 @@ export class MinecraftBot {
                 }
 
                 if (blocks.length === 0) {
+                    const sinceLastGain = lastGainAt > 0 ? Date.now() - lastGainAt : Infinity;
+                    if (lastProgressTargetPos && sinceLastGain < stackedExhaustionIdleMs) {
+                        blocks = [lastProgressTargetPos];
+                        targetSource = 'recent-gain-fallback';
+                    }
+                }
+
+                if (blocks.length === 0) {
                     if (!noTargetSince) {
                         noTargetSince = Date.now();
                     }
@@ -1461,7 +1470,9 @@ export class MinecraftBot {
                             const missingElapsed = Date.now() - missingSince;
                             const missingLimit = targetSource === 'afkProfile-fallback'
                                 ? Math.min(2000, stackedTargetMissingConfirmMs)
-                                : stackedTargetMissingConfirmMs;
+                                : (targetSource === 'recent-gain-fallback'
+                                    ? Math.max(20000, stackedTargetMissingConfirmMs)
+                                    : stackedTargetMissingConfirmMs);
                             if (missingElapsed < missingLimit) {
                                 await sleepWithBreakJitter(noTargetRescanDelay);
                                 continue;
@@ -1521,6 +1532,7 @@ export class MinecraftBot {
                                 noGainStreak = 0;
                                 targetLastGainAt = Date.now();
                                 lastGainAt = targetLastGainAt;
+                                lastProgressTargetPos = pos.clone();
                                 totalBroken += gained;
                                 this.stats.spawnersBroken += gained;
                                 const progressMsg = `[Spawner] Slot ${this.slot}: +${gained} spawner kirildi | Toplam: ${totalBroken}`;
