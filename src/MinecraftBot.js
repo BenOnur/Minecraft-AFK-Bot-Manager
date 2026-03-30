@@ -1265,6 +1265,7 @@ export class MinecraftBot {
             1000,
             protectionConfig.stackedDepletionConfirmMs ?? Math.max(30000, inventoryConfirmTimeout + 1000)
         );
+        const stackedExhaustionIdleMs = Math.max(5000, protectionConfig.stackedExhaustionIdleMs ?? 120000);
         const noTargetRescanDelay = Math.max(100, protectionConfig.noTargetRescanDelay ?? 500);
         const hasSavedAfkTargets = Array.isArray(this.afkProfile?.spawners) && this.afkProfile.spawners.length > 0;
 
@@ -1295,6 +1296,7 @@ export class MinecraftBot {
 
         let totalBroken = 0;
         let completedByClearingTargets = false;
+        let lastBreakAt = 0;
         let noTargetSince = null;
         let nextNoTargetLogAt = 0;
         // Loop: keep scanning and breaking until no spawners remain or inventory full
@@ -1332,19 +1334,29 @@ export class MinecraftBot {
                     return;
                 }
 
-                if (hasSavedAfkTargets) {
+                const shouldGuardNoTargets = hasSavedAfkTargets || lastBreakAt > 0;
+                if (shouldGuardNoTargets) {
                     if (!noTargetSince) {
                         noTargetSince = Date.now();
                         nextNoTargetLogAt = 0;
                     }
 
                     const now = Date.now();
-                    const elapsed = now - noTargetSince;
-                    if (elapsed < stackedDepletionConfirmMs) {
+                    const elapsedNoTarget = now - noTargetSince;
+                    const elapsedSinceLastBreak = lastBreakAt > 0 ? now - lastBreakAt : Infinity;
+                    const waitByNoTargetConfirm = elapsedNoTarget < stackedDepletionConfirmMs;
+                    const waitByRecentBreak = elapsedSinceLastBreak < stackedExhaustionIdleMs;
+                    if (waitByNoTargetConfirm || waitByRecentBreak) {
                         if (now >= nextNoTargetLogAt) {
-                            const remainSec = Math.ceil((stackedDepletionConfirmMs - elapsed) / 1000);
+                            const remainingByNoTarget = waitByNoTargetConfirm
+                                ? Math.ceil((stackedDepletionConfirmMs - elapsedNoTarget) / 1000)
+                                : 0;
+                            const remainingByRecentBreak = waitByRecentBreak
+                                ? Math.ceil((stackedExhaustionIdleMs - elapsedSinceLastBreak) / 1000)
+                                : 0;
+                            const remainSec = Math.max(remainingByNoTarget, remainingByRecentBreak);
                             logger.info(
-                                `Slot ${this.slot}: No visible ${blockName} at AFK targets yet. Re-checking for ${remainSec}s before retreat.`
+                                `Slot ${this.slot}: No visible ${blockName}. Re-checking for ${remainSec}s before retreat.`
                             );
                             nextNoTargetLogAt = now + 5000;
                         }
@@ -1402,7 +1414,8 @@ export class MinecraftBot {
 
                     const block = this.bot.blockAt(pos);
                     if (!block || block.name !== blockName) {
-                        if (targetSource === 'afkProfile') {
+                        const shouldWatchForRespawn = targetSource === 'afkProfile' || brokenOnCurrentTarget > 0;
+                        if (shouldWatchForRespawn) {
                             if (!missingSince) {
                                 missingSince = Date.now();
                                 nextMissingLogAt = 0;
@@ -1451,6 +1464,7 @@ export class MinecraftBot {
                     if (breakResult.broken) {
                         const stillSameBlock = this.bot?.blockAt(pos)?.name === blockName;
                         const gained = this.getStackedBatchGain(breakResult, stillSameBlock, stackBatchSize);
+                        lastBreakAt = Date.now();
                         totalBroken += gained;
                         brokeInScan += gained;
                         brokenOnCurrentTarget += gained;
@@ -1478,7 +1492,7 @@ export class MinecraftBot {
                             logger.info(`Slot ${this.slot}: ${pos} stacked target fully cleared (${brokenOnCurrentTarget} ${blockName}).`);
                         }
 
-                        if (targetSource === 'afkProfile') {
+                        if (targetSource === 'afkProfile' || brokenOnCurrentTarget > 0) {
                             if (!missingSince) {
                                 missingSince = Date.now();
                                 nextMissingLogAt = 0;
