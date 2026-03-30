@@ -1317,7 +1317,8 @@ export class MinecraftBot {
             naturalLookStepDelay: Math.max(0, protectionConfig.naturalLookStepDelay ?? 20),
             naturalLookJitter: Math.max(0, protectionConfig.naturalLookJitter ?? 0.01),
             preDigPause: Math.max(0, protectionConfig.preDigPause ?? 35),
-            digActionTimeout: Math.max(150, protectionConfig.digActionTimeout ?? 650),
+            // Hold left-click long enough for stacked-spawner plugin break windows.
+            digActionTimeout: Math.max(1000, protectionConfig.digActionTimeout ?? 4500),
             postDigReleaseDelay: Math.max(0, protectionConfig.postDigReleaseDelay ?? 25),
             blockGoneStableMs: Math.max(0, protectionConfig.blockGoneStableMs ?? 500),
             blockGoneRecheckInterval: Math.max(20, protectionConfig.blockGoneRecheckInterval ?? 100)
@@ -1475,9 +1476,10 @@ export class MinecraftBot {
                         const adaptiveConfirmTimeout = shouldDeepProbe
                             ? Math.max(2500, breakOptions.inventoryConfirmTimeout)
                             : breakOptions.inventoryConfirmTimeout;
+                        const baseDigHoldMs = Math.max(1000, Math.min(6000, breakOptions.digActionTimeout));
                         const adaptiveDigTimeout = shouldDeepProbe
-                            ? Math.max(1200, Math.min(3000, adaptiveConfirmTimeout))
-                            : Math.max(650, Math.min(1200, breakOptions.digActionTimeout));
+                            ? Math.min(7000, Math.max(baseDigHoldMs + 800, adaptiveConfirmTimeout + 800))
+                            : baseDigHoldMs;
 
                         const breakResult = await this.breakBlockWithVerification(pos, blockName, {
                             ...breakOptions,
