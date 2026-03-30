@@ -1294,17 +1294,18 @@ export class MinecraftBot {
         const stackedNoGainBackoffAfter = Math.max(8, protectionConfig.stackedNoGainBackoffAfter ?? 8);
         const hasSavedAfkTargets = Array.isArray(this.afkProfile?.spawners) && this.afkProfile.spawners.length > 0;
 
+        const configuredInventoryConfirmTimeout =
+            protectionConfig.inventoryConfirmTimeout ??
+            protectionConfig.inventoryConfirmDelay ??
+            80;
+
         const breakOptions = {
             breakDelay: Math.max(0, protectionConfig.breakDelay ?? 0),
             verifyDelay: Math.max(0, protectionConfig.verifyDelay ?? 80),
             breakRetryCount: Math.max(0, protectionConfig.breakRetryCount ?? 1),
             breakRetryDelay: Math.max(0, protectionConfig.breakRetryDelay ?? 100),
-            inventoryConfirmTimeout: Math.max(
-                5000,
-                protectionConfig.inventoryConfirmTimeout ??
-                protectionConfig.inventoryConfirmDelay ??
-                80
-            ),
+            // Keep normal hit loop fast; occasional deep-probe is handled per-attempt below.
+            inventoryConfirmTimeout: Math.min(1500, Math.max(350, configuredInventoryConfirmTimeout)),
             inventoryConfirmPollInterval: Math.max(100, protectionConfig.inventoryConfirmPollInterval ?? 100),
             goneConfirmChecks: Math.max(1, protectionConfig.goneConfirmChecks ?? 3),
             goneConfirmInterval: Math.max(0, protectionConfig.goneConfirmInterval ?? 50),
@@ -1460,6 +1461,14 @@ export class MinecraftBot {
                         missingSince = null;
 
                         const quickFollowUpSwing = hasAimedAtTarget;
+                        const shouldDeepProbe = noGainStreak > 0 && (noGainStreak % 8 === 0);
+                        const adaptiveConfirmTimeout = shouldDeepProbe
+                            ? Math.max(2500, breakOptions.inventoryConfirmTimeout)
+                            : breakOptions.inventoryConfirmTimeout;
+                        const adaptiveDigTimeout = shouldDeepProbe
+                            ? Math.max(1200, Math.min(3000, adaptiveConfirmTimeout))
+                            : Math.max(650, Math.min(1200, breakOptions.digActionTimeout));
+
                         const breakResult = await this.breakBlockWithVerification(pos, blockName, {
                             ...breakOptions,
                             skipLook: quickFollowUpSwing,
@@ -1467,10 +1476,8 @@ export class MinecraftBot {
                             forceLookForDig: true,
                             // Stacked-spawner servers often need longer sustained hold; avoid early fast-exit.
                             stackedFastMode: false,
-                            digActionTimeout: Math.max(
-                                breakOptions.digActionTimeout,
-                                breakOptions.inventoryConfirmTimeout
-                            ),
+                            inventoryConfirmTimeout: adaptiveConfirmTimeout,
+                            digActionTimeout: adaptiveDigTimeout,
                             naturalLookSteps: quickFollowUpSwing ? 1 : breakOptions.naturalLookSteps,
                             naturalLookStepDelay: quickFollowUpSwing ? 0 : breakOptions.naturalLookStepDelay,
                             naturalLookJitter: quickFollowUpSwing ? 0.004 : breakOptions.naturalLookJitter,
