@@ -81,40 +81,6 @@ export async function handleStart(ctx, args) {
     };
 }
 
-export function handlePause(ctx, args) {
-    if (args.length === 0) {
-        return { success: false, message: '❌ Kullanım: `/pause <slot>`' };
-    }
-
-    const slot = parseInt(args[0]);
-    if (isNaN(slot)) {
-        return { success: false, message: '❌ Geçersiz slot numarası' };
-    }
-
-    const result = ctx.botManager.pauseBot(slot);
-    return {
-        success: result,
-        message: result ? `⏸️ Slot **${slot}** duraklatıldı (Anti-AFK devre dışı)` : `❌ Slot **${slot}** duraklatılamadı`
-    };
-}
-
-export function handleResume(ctx, args) {
-    if (args.length === 0) {
-        return { success: false, message: '❌ Kullanım: `/resume <slot>`' };
-    }
-
-    const slot = parseInt(args[0]);
-    if (isNaN(slot)) {
-        return { success: false, message: '❌ Geçersiz slot numarası' };
-    }
-
-    const result = ctx.botManager.resumeBot(slot);
-    return {
-        success: result,
-        message: result ? `▶️ Slot **${slot}** devam ettiriliyor (Anti-AFK aktif)` : `❌ Slot **${slot}** devam ettirilemedi`
-    };
-}
-
 export function handleInventory(ctx, args) {
     if (args.length === 0) {
         return { success: false, message: '❌ Kullanım: `/inv <slot>`' };
@@ -134,17 +100,6 @@ export function handleInventory(ctx, args) {
         success: true,
         message: `Slot ${slot} envanteri`,
         data: inventory
-    };
-}
-
-export function handleTake(_ctx, args) {
-    if (args.length < 3) {
-        return { success: false, message: 'Usage: /take <slot> <item> <count>' };
-    }
-
-    return {
-        success: false,
-        message: 'Take command not yet implemented - requires chest interaction logic'
     };
 }
 

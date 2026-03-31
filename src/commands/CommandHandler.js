@@ -6,10 +6,7 @@ import {
     handleRestart,
     handleStop,
     handleStart,
-    handlePause,
-    handleResume,
     handleInventory,
-    handleTake,
     handleDrop
 } from './handlers/lifecycleHandlers.js';
 import {
@@ -60,14 +57,8 @@ export class CommandHandler {
                     return await this.handleStop(args);
                 case 'start':
                     return await this.handleStart(args);
-                case 'pause':
-                    return await this.handlePause(args);
-                case 'resume':
-                    return await this.handleResume(args);
                 case 'inv':
                     return await this.handleInventory(args);
-                case 'take':
-                    return await this.handleTake(args);
                 case 'drop':
                     return await this.handleDrop(args);
                 case 'forward':
@@ -132,20 +123,8 @@ export class CommandHandler {
         return handleStart(this, args);
     }
 
-    async handlePause(args) {
-        return handlePause(this, args);
-    }
-
-    async handleResume(args) {
-        return handleResume(this, args);
-    }
-
     async handleInventory(args) {
         return handleInventory(this, args);
-    }
-
-    async handleTake(args) {
-        return handleTake(this, args);
     }
 
     async handleDrop(args) {

@@ -122,28 +122,6 @@ export class ConnectionManager {
         return true;
     }
 
-    pause() {
-        if (!this.owner.bot) {
-            logger.warn(`Slot ${this.owner.slot}: Bot is not running`);
-            return false;
-        }
-
-        this.owner.isPaused = true;
-        logger.info(`Slot ${this.owner.slot}: Bot paused`);
-        return true;
-    }
-
-    resume() {
-        if (!this.owner.bot) {
-            logger.warn(`Slot ${this.owner.slot}: Bot is not running`);
-            return false;
-        }
-
-        this.owner.isPaused = false;
-        logger.info(`Slot ${this.owner.slot}: Bot resumed`);
-        return true;
-    }
-
     async restart() {
         logger.info(`Slot ${this.owner.slot}: Restarting bot`);
         await this.stop();
@@ -156,7 +134,7 @@ export class ConnectionManager {
     }
 
     async move(direction, distance) {
-        if (!this.owner.bot || this.owner.status !== 'online' || this.owner.isPaused) {
+        if (!this.owner.bot || this.owner.status !== 'online') {
             return { success: false, message: 'Bot not ready' };
         }
 
@@ -213,7 +191,7 @@ export class ConnectionManager {
     }
 
     async sendChat(message) {
-        if (!this.owner.bot || this.owner.status !== 'online' || this.owner.isPaused) {
+        if (!this.owner.bot || this.owner.status !== 'online') {
             logger.warn(`Slot ${this.owner.slot}: Cannot send chat message - bot not ready`);
             return false;
         }
@@ -242,17 +220,9 @@ export class ConnectionManager {
     }
 
     cleanup() {
-        if (this.owner.antiAfkInterval) {
-            clearTimeout(this.owner.antiAfkInterval);
-            this.owner.antiAfkInterval = null;
-        }
         if (this.owner.proximityInterval) {
             clearInterval(this.owner.proximityInterval);
             this.owner.proximityInterval = null;
-        }
-        if (this.owner.autoEatTimeout) {
-            clearTimeout(this.owner.autoEatTimeout);
-            this.owner.autoEatTimeout = null;
         }
         if (this.owner.inventoryMonitorInterval) {
             clearInterval(this.owner.inventoryMonitorInterval);
@@ -273,7 +243,6 @@ export class ConnectionManager {
             slot: this.owner.slot,
             username: this.owner.accountConfig.username,
             status: resolvedStatus,
-            isPaused: this.owner.isPaused,
             protectionEnabled: this.owner.protectionEnabled,
             reconnectAttempts: this.owner.reconnectAttempts,
             health: this.owner.bot?.health,

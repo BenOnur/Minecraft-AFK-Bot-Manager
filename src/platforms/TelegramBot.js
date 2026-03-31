@@ -166,9 +166,8 @@ export class TelegramBot {
 
     formatStatusLine(status) {
         const emoji = this.getStatusEmoji(status.status);
-        const pausedText = status.isPaused ? ' ⏸' : '';
         const protectText = status.protectionEnabled ? 'AÇIK' : 'KAPALI';
-        let line = `${emoji} <b>Slot ${status.slot}</b>${pausedText} — ${this.escapeHtml(status.username)} | 🛡️ ${protectText}`;
+        let line = `${emoji} <b>Slot ${status.slot}</b> — ${this.escapeHtml(status.username)} | 🛡️ ${protectText}`;
         if (status.health !== undefined) {
             line += ` | 💗 ${Math.round(status.health)} 🍗 ${Math.round(status.food)}`;
         }
@@ -180,7 +179,6 @@ export class TelegramBot {
         let text = `${emoji} <b>Slot ${status.slot}</b> — ${this.escapeHtml(status.username)}\n`;
         text += `━━━━━━━━━━━━━━━━━━━━\n`;
         text += `📶 Durum: <b>${this.escapeHtml(status.status)}</b>\n`;
-        text += `⏸ Duraklatıldı: <b>${status.isPaused ? 'Evet' : 'Hayır'}</b>\n`;
         text += `🛡️ Koruma: <b>${status.protectionEnabled ? 'AÇIK' : 'KAPALI'}</b>\n`;
 
         if (status.health !== undefined) {

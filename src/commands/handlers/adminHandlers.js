@@ -2,8 +2,7 @@ function formatAccountList(accounts) {
     let message = '📋 **Kayıtlı Hesaplar**\n━━━━━━━━━━━━━━━━━━━━\n';
     accounts.forEach(acc => {
         const statusEmoji = acc.status === 'online' ? '🟢' : (acc.status === 'offline' ? '⚫' : '🔴');
-        const pausedText = acc.isPaused ? ' ⏸' : '';
-        message += `${statusEmoji} **Slot ${acc.slot}** — ${acc.username}${pausedText}`;
+        message += `${statusEmoji} **Slot ${acc.slot}** — ${acc.username}`;
         if (acc.health !== undefined) {
             message += ` | 💗 ${Math.round(acc.health)} 🍗 ${Math.round(acc.food)}`;
         }

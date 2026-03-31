@@ -42,14 +42,6 @@ export class DiscordBot {
                 .setDescription('Botu yeniden başlat')
                 .addStringOption(opt => opt.setName('slot').setDescription('Slot veya "all"').setRequired(true)),
             new SlashCommandBuilder()
-                .setName('pause')
-                .setDescription('Anti-AFK durdur')
-                .addIntegerOption(opt => opt.setName('slot').setDescription('Slot numarası').setRequired(true)),
-            new SlashCommandBuilder()
-                .setName('resume')
-                .setDescription('Anti-AFK devam ettir')
-                .addIntegerOption(opt => opt.setName('slot').setDescription('Slot numarası').setRequired(true)),
-            new SlashCommandBuilder()
                 .setName('inv')
                 .setDescription('Envanter görüntüle')
                 .addIntegerOption(opt => opt.setName('slot').setDescription('Slot numarası').setRequired(true)),
@@ -194,7 +186,7 @@ export class DiscordBot {
                     if (commandName === 'status') {
                         const slot = options.getInteger('slot');
                         if (slot) args.push(slot.toString());
-                    } else if (commandName === 'start' || commandName === 'stop' || commandName === 'pause' || commandName === 'resume' || commandName === 'inv' || commandName === 'protect' || commandName === 'afkset') {
+                    } else if (commandName === 'start' || commandName === 'stop' || commandName === 'inv' || commandName === 'protect' || commandName === 'afkset') {
                         args.push(options.getInteger('slot').toString());
                     } else if (commandName === 'restart') {
                         args.push(options.getString('slot'));
@@ -318,9 +310,8 @@ export class DiscordBot {
 
         for (const status of statuses) {
             const emoji = this.getStatusEmoji(status.status);
-            const pausedText = status.isPaused ? ' ⏸' : '';
             const protectText = status.protectionEnabled ? 'AÇIK' : 'KAPALI';
-            let value = `📶 **${status.status}**${pausedText}\n👤 ${status.username}\n🛡️ Koruma: **${protectText}**`;
+            let value = `📶 **${status.status}**\n👤 ${status.username}\n🛡️ Koruma: **${protectText}**`;
             if (status.health !== undefined) {
                 value += `\n💗 ${Math.round(status.health)}/20 🍗 ${Math.round(status.food)}/20`;
             }
@@ -347,7 +338,6 @@ export class DiscordBot {
 
         embed.addFields(
             { name: '📶 Durum', value: status.status, inline: true },
-            { name: '⏸ Duraklatıldı', value: status.isPaused ? 'Evet' : 'Hayır', inline: true },
             { name: '🛡️ Koruma', value: status.protectionEnabled ? 'AÇIK' : 'KAPALI', inline: true }
         );
 

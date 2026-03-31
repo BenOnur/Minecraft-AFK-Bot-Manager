@@ -29,8 +29,6 @@ export function handleTelegramHelp() {
 /start <slot>
 /stop <slot>
 /restart <slot|all>
-/pause <slot>
-/resume <slot>
 
 **Hesap Yonetimi**
 /account add
@@ -81,7 +79,7 @@ export function handleDiscordHelp() {
                 },
                 {
                     name: '🎮 Bot Kontrolü',
-                    value: '`/start <slot>` — Botu başlat\n`/stop <slot>` — Botu durdur\n`/restart <slot|all>` — Yeniden başlat\n`/pause <slot>` — Anti-AFK durdur\n`/resume <slot>` — Anti-AFK devam',
+                    value: '`/start <slot>` — Botu başlat\n`/stop <slot>` — Botu durdur\n`/restart <slot|all>` — Yeniden başlat',
                     inline: true
                 },
                 {
@@ -129,8 +127,6 @@ export function handleGenericHelp() {
 /account remove 1 - Remove account 1
 /account list - List accounts
 /start 1 - Start slot 1
-/pause 1 - Pause slot 1
-/resume 1 - Resume slot 1
 
 **Inventory:**
 /inv 1 - Show slot 1 inventory

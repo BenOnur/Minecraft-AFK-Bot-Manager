@@ -55,13 +55,6 @@ export class InventoryManager {
         this.owner = owner;
     }
 
-    getSpawnerItemCount() {
-        if (!this.owner.bot) return 0;
-        return this.owner.bot.inventory.items()
-            .filter(item => item?.name?.includes('spawner'))
-            .reduce((sum, item) => sum + (item.count || 0), 0);
-    }
-
     getBestPickaxe() {
         if (!this.owner.bot) return null;
 
@@ -98,7 +91,7 @@ export class InventoryManager {
         this.owner.toolAlertSent.clear();
 
         this.owner.inventoryMonitorInterval = setInterval(() => {
-            if (!this.owner.bot || this.owner.status !== 'online' || this.owner.isPaused || this.owner.isInLobby) return;
+            if (!this.owner.bot || this.owner.status !== 'online' || this.owner.isInLobby) return;
 
             const totalSlots = 36;
             const emptySlots = this.owner.bot.inventory.emptySlotCount();

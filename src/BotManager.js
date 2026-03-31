@@ -177,26 +177,6 @@ export class BotManager {
         return await bot.restart();
     }
 
-    pauseBot(slot) {
-        const bot = this.bots.get(slot);
-        if (!bot) {
-            logger.error(`Slot ${slot} not found`);
-            return false;
-        }
-
-        return bot.pause();
-    }
-
-    resumeBot(slot) {
-        const bot = this.bots.get(slot);
-        if (!bot) {
-            logger.error(`Slot ${slot} not found`);
-            return false;
-        }
-
-        return bot.resume();
-    }
-
     async startAll() {
         logger.info('Starting all bots');
         const promises = [];

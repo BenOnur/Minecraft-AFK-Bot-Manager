@@ -26,8 +26,6 @@ Hepsi bu kadar. Ayrintilar asagida.
 - Slot bazli coklu hesap (1, 2, 3...)
 - Telegram ve Discord uzaktan komut destegi
 - Otomatik reconnect
-- Anti-AFK hareketleri
-- Otomatik yemek yeme
 - Envanter ve arac dayaniklilik uyarilari
 - Proximity alarmi
 - AFK anchor kaydi (`/afkset <slot>`) + 20 blok uzaklasmada hizli lobby algilama
@@ -38,7 +36,7 @@ Hepsi bu kadar. Ayrintilar asagida.
 `/protect <slot>` ile ilgili not:
 - Bu komut ilgili slot icin korumayi acip/kapatir (toggle).
 - `/protect <slot> on` veya `/protect <slot> off` ile net durum verilebilir.
-- Koruma kapaliyken diger ozellikler (yon verme, AFK, /say, yemek yeme vb.) calismaya devam eder.
+- Koruma kapaliyken diger yonetim komutlari (`/say`, hareket, `/drop` vb.) calismaya devam eder.
 
 ## 2) Gereksinimler
 
@@ -136,8 +134,6 @@ Ornek:
     "autoReconnect": true,
     "reconnectDelay": 5000,
     "maxReconnectAttempts": 10,
-    "antiAfkEnabled": true,
-    "antiAfkInterval": 30000,
     "proximityAlertEnabled": true,
     "alertDistance": 96,
     "alertCooldown": 300000,
@@ -148,7 +144,9 @@ Ornek:
       "emergencyDistance": 10,
       "blockType": "spawner",
       "radius": 64,
-      "breakDelay": 300
+      "startDelay": 250,
+      "verifyDelay": 80,
+      "digActionTimeout": 7000
     }
   }
 }
@@ -200,8 +198,6 @@ Oturum verileri `sessions/` klasorunde tutulur. Bu klasoru silerseniz tekrar gir
 - `/start <slot>`
 - `/stop <slot>` (alias: `/disconnect <slot>`)
 - `/restart <slot|all>` (alias: `/reconnect <slot|all>`)
-- `/pause <slot>`
-- `/resume <slot>`
 
 Not:
 - `/stop <slot>` komutu o slotu kalici olarak `autoStart: false` yapar.
@@ -224,7 +220,6 @@ Not:
 
 - `/drop <slot> all`
 - `/drop <slot> <esya> [adet]`
-- `/take <slot> <esya> <adet>` (su an kodda tam uygulanmamis)
 
 ### 6.7 Guvenlik
 
@@ -240,25 +235,14 @@ Koruma acik oldugunda:
 - Proximity kontrolu aktif olur
 - Lobby algilama ve geri donus denemesi aktif olur
 - Tehditte spawner koruma protokolu devreye girebilir
-- Stacked spawner sunucularinda ayni koordinattaki spawner stack'i 64'luk chunk'lar halinde bitene kadar kirilmaya devam eder
 - Spawnerlar tamamen temizlenirse bot rastgele `/spawn 1-5` gider ve 10 saniye sonra kapanir
 
 `/afkset <slot>` notu:
 - Slotun o anki AFK noktasi `minecraft.accounts[].afkProfile.anchor` alanina kaydedilir.
 - `settings.protection.radius` icindeki spawner koordinatlari `afkProfile.spawners` listesine yazilir.
-- Stacked kirma chunk boyutu `settings.protection.stackBatchSize` (varsayilan `64`) ile ayarlanabilir.
-- Koruma tamamlandi karari `settings.protection.protectionClearConfirmMs` (varsayilan `180000`) sureli bos tarama onayi ile verilir.
-- AFK kayitli hedeflerde gorunur spawner bir an kaybolursa bot hemen geri donmez; `settings.protection.stackedDepletionConfirmMs` (varsayilan `30000`) suresi boyunca ayni noktayi tekrar tarar.
-- Son kirmadan hemen sonra target gorunmezse erken retreat engeli icin `settings.protection.stackedExhaustionIdleMs` (varsayilan `300000`) boyunca tekrar deneme yapar.
-- Tek bir hedef anlik kayboldugunda o hedefte kisa sureli bekleme penceresi `settings.protection.stackedTargetMissingConfirmMs` (varsayilan `8000`) ile yonetilir.
-- Envantere gain dusmeyen art arda denemelerde anti-ghost backoff uygulanir: `stackedNoGainBackoffAfter` ve `stackedNoGainRetryDelay`.
-- Surekli kirma hissi icin varsayilanlar hizlandirildi: `inventoryConfirmPollInterval=100`, `stackedFastGraceMs=900`, `stackedNoGainRetryDelay=350`, `stackedNoGainBackoffAfter=8`.
-- Stacked spawner kiriminda M1 hold suresi adaptif uygulanir; packet modunda `settings.protection.digActionTimeout` icin onerilen taban deger `9000ms` civaridir.
-- Kirma denemelerinde `raycast` yuz secimi ve zorunlu hedefe bakis kullanilarak anti-cheat uyumlulugu artirildi.
-- Varsayilan olarak packet tabanli kazma aktif: `packetDigEnabled=true`, hiz ayarlari `packetDigPulseMs`; `packetDigRestartMs=0` ile gereksiz restart paketi kapali tutulur.
-- Packet modunda envanter gain dogrulama penceresi daha uzun tutulur (onerilen `inventoryConfirmTimeout >= 9000ms`), boylece stack drop gecikmeleri kacirilmaz.
-- Packet hold sirasinda ekstra arm-spam kaldirildi; akıs `start -> hold -> stop` seklinde daha stabil tutulur.
-- Kirma denemeleri arasinda insan-benzeri rastgele gecikme vardir; `settings.protection.randomBreakIntervalMaxMs` en fazla `800ms` olacak sekilde uygulanir.
+- Koruma once `afkProfile.spawners` hedeflerini dener; hedef bulunamazsa kademeli yaricap artirarak tarama yapar.
+- Temizlendi karari `settings.protection.protectionClearConfirmMs` ve `requiredEmptyScans` birlikte saglaninca verilir.
+- Kisa aralikli tarama ve ilerleme ayarlari icin `maxScanRadius`, `scanRadiusStep`, `savedTargetsRadius`, `noTargetRescanDelay`, `postBreakDelay` ve `maxStalledProtectionCycles` kullanilir.
 - Koruma sirasinda her basarili spawner kiriminda Telegram/Discord bildirim gider; tum hedefler temizlenince `/spawn 1-5` oncesi tamamlandi bildirimi gonderilir.
 - Slot AFK anchor'dan 20+ blok uzaklasirsa lobby kabul edilir.
 - Lobby modundayken bot `/home sp` komutunu hemen, sonrasinda 2 dakikada bir yollar.
