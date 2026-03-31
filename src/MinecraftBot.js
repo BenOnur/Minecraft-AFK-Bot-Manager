@@ -20,17 +20,46 @@ function getPickaxeTierScore(name) {
     return 0;
 }
 
-function getSilkTouchLevel(rawNbt) {
+function getSilkTouchLevel(item) {
+    if (!item) return 0;
+
+    try {
+        const enchantments = Array.isArray(item.enchants) ? item.enchants : [];
+        let silk = 0;
+
+        for (const ench of enchantments) {
+            const name = String(ench?.name ?? ench?.id ?? '');
+            const lvl = Number(ench?.lvl ?? ench?.level ?? 0);
+            if (name.includes('silk_touch')) {
+                silk = Math.max(silk, lvl);
+            }
+        }
+
+        if (silk > 0) {
+            return silk;
+        }
+    } catch (_) {
+        // Fall back to raw NBT parsing below.
+    }
+
+    const rawNbt = item.nbt;
     if (!rawNbt) return 0;
 
     try {
         const simplified = nbt.simplify(rawNbt);
-        const enchantments = simplified?.Enchantments ?? simplified?.tag?.Enchantments ?? [];
+        const enchantments =
+            simplified?.Enchantments ??
+            simplified?.StoredEnchantments ??
+            simplified?.ench ??
+            simplified?.tag?.Enchantments ??
+            simplified?.tag?.StoredEnchantments ??
+            simplified?.tag?.ench ??
+            [];
 
         let silk = 0;
         for (const ench of enchantments) {
-            const id = String(ench?.id ?? '');
-            const lvl = Number(ench?.lvl ?? 0);
+            const id = String(ench?.id ?? ench?.name ?? '');
+            const lvl = Number(ench?.lvl ?? ench?.level ?? 0);
             if (id.includes('silk_touch')) {
                 silk = Math.max(silk, lvl);
             }
@@ -48,7 +77,7 @@ function pickBestSilkTouchPickaxe(items) {
     for (const item of items) {
         if (!item?.name?.includes('pickaxe')) continue;
 
-        const silkLevel = getSilkTouchLevel(item.nbt);
+        const silkLevel = getSilkTouchLevel(item);
         if (silkLevel <= 0) continue;
 
         const score = (silkLevel * 100) + getPickaxeTierScore(item.name);
