@@ -927,10 +927,6 @@ export class MinecraftBot {
     async breakSpawnerNormally(pos, blockName, options = {}) {
         const breakRetryCount = Math.max(0, options.breakRetryCount ?? 2);
         const breakRetryDelay = Math.max(0, options.breakRetryDelay ?? 220);
-        const visibilityTimeout = Math.max(300, options.visibilityTimeout ?? 1800);
-        const visibilityPollInterval = Math.max(50, options.visibilityPollInterval ?? 100);
-        const inventoryConfirmTimeout = Math.max(300, options.inventoryConfirmTimeout ?? 1800);
-        const inventoryConfirmPollInterval = Math.max(50, options.inventoryConfirmPollInterval ?? 120);
         const previousSpawnerCount = this.getSpawnerInventoryCount(blockName);
 
         for (let attempt = 0; attempt <= breakRetryCount; attempt++) {
@@ -938,8 +934,7 @@ export class MinecraftBot {
                 return { broken: false, reason: 'bot_not_ready' };
             }
 
-            let block = await this.waitForVisibleSpawner(pos, blockName, visibilityTimeout, visibilityPollInterval);
-
+            let block = this.bot.blockAt(pos);
             if (!this.isSpawnerBlock(block, blockName)) {
                 return { broken: false, reason: 'not_visible' };
             }
@@ -951,43 +946,23 @@ export class MinecraftBot {
             try {
                 await this.equipProtectionPickaxe();
 
-                this.haltProtectionMovement();
-                await this.ensureProtectionSneak();
-
-                block = this.bot.blockAt(pos);
-                if (!this.isSpawnerBlock(block, blockName)) {
-                    return { broken: false, reason: 'not_visible' };
-                }
-
-                if (!this.canDigFromCurrentPosition(block, blockName)) {
-                    return { broken: false, reason: 'not_diggable' };
-                }
-
                 await this.bot.dig(block);
 
-                const gained = await this.waitForSpawnerInventoryGain(
-                    previousSpawnerCount,
-                    inventoryConfirmTimeout,
-                    inventoryConfirmPollInterval,
-                    blockName
-                );
+                const currentCount = this.getSpawnerInventoryCount(blockName);
+                const gained = currentCount - previousSpawnerCount;
 
-                const verifyBlock = await this.waitForVisibleSpawner(
-                    pos,
-                    blockName,
-                    Math.min(900, visibilityTimeout),
-                    visibilityPollInterval
-                );
+                block = this.bot.blockAt(pos);
+                const stillExists = this.isSpawnerBlock(block, blockName);
 
                 if (gained > 0) {
                     return {
                         broken: true,
-                        reason: this.isSpawnerBlock(verifyBlock, blockName) ? 'stack_remaining' : 'broken',
+                        reason: stillExists ? 'stack_remaining' : 'broken',
                         gained
                     };
                 }
 
-                if (this.isSpawnerBlock(verifyBlock, blockName)) {
+                if (stillExists) {
                     return { broken: false, reason: 'no_inventory_gain' };
                 }
 
@@ -1162,6 +1137,8 @@ export class MinecraftBot {
                     }
 
                     this.lastProtectionTargetPos = targetPos;
+                    this.haltProtectionMovement();
+                    await this.ensureProtectionSneak();
 
                     const breakResult = await this.breakSpawnerNormally(targetPos, blockName, {
                         breakRetryCount: protectionConfig.breakRetryCount,
