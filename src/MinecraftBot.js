@@ -1286,15 +1286,30 @@ export class MinecraftBot {
         const digActionTimeout = Math.max(1000, options.digActionTimeout ?? 7000);
         const breakRetryCount = Math.max(0, options.breakRetryCount ?? 2);
         const breakRetryDelay = Math.max(0, options.breakRetryDelay ?? 220);
+        const visibilityTimeout = Math.max(200, options.visibilityTimeout ?? 1400);
+        const stackReappearConfirmMs = Math.max(250, options.stackReappearConfirmMs ?? 1600);
 
         for (let attempt = 0; attempt <= breakRetryCount; attempt++) {
             if (!this.bot || this.status !== 'online') {
                 return { broken: false, reason: 'bot_not_ready' };
             }
 
-            const block = this.bot.blockAt(pos);
+            let block = this.bot.blockAt(pos);
             if (!block || block.name !== blockName) {
-                return { broken: true, reason: 'already_gone' };
+                const visibleUntil = Date.now() + visibilityTimeout;
+                while (Date.now() < visibleUntil) {
+                    await this.refreshProtectionView(pos);
+                    await sleep(90);
+
+                    block = this.bot.blockAt(pos);
+                    if (block && block.name === blockName) {
+                        break;
+                    }
+                }
+
+                if (!block || block.name !== blockName) {
+                    return { broken: false, reason: 'not_visible' };
+                }
             }
 
             try {
@@ -1336,14 +1351,23 @@ export class MinecraftBot {
                 await sleep(verifyDelay);
             }
 
-            const verifyBlock = this.bot?.blockAt(pos);
+            let verifyBlock = this.bot?.blockAt(pos);
             if (!verifyBlock || verifyBlock.name !== blockName) {
+                const reappearUntil = Date.now() + stackReappearConfirmMs;
+                while (Date.now() < reappearUntil) {
+                    await this.refreshProtectionView(pos);
+                    await sleep(110);
+
+                    verifyBlock = this.bot?.blockAt(pos);
+                    if (verifyBlock && verifyBlock.name === blockName) {
+                        return { broken: false, reason: 'stack_remaining' };
+                    }
+                }
+
                 return { broken: true, reason: 'broken' };
             }
 
-            if (attempt < breakRetryCount && breakRetryDelay > 0) {
-                await sleep(breakRetryDelay);
-            }
+            return { broken: false, reason: 'stack_remaining' };
         }
 
         return { broken: false, reason: 'still_exists' };
@@ -1355,44 +1379,24 @@ export class MinecraftBot {
         }
 
         const targetCenter = referencePos.offset(0.5, 0.5, 0.5);
-        const wasSneaking = this.bot.getControlState('sneak');
-        const lateralDirection = Math.random() > 0.5 ? 'left' : 'right';
-        const forwardDirection = Math.random() > 0.5 ? 'forward' : 'back';
 
         try {
-            if (wasSneaking) {
-                this.bot.setControlState('sneak', false);
-            }
-
             await this.bot.lookAt(targetCenter, true);
 
-            this.bot.setControlState(lateralDirection, true);
-            await sleep(180 + Math.floor(Math.random() * 80));
-            this.bot.setControlState(lateralDirection, false);
-
-            this.bot.setControlState(forwardDirection, true);
-            await sleep(90 + Math.floor(Math.random() * 60));
-            this.bot.setControlState(forwardDirection, false);
-
             const sweepTargets = [
-                targetCenter.offset(0.35, 0.10, 0),
-                targetCenter.offset(-0.35, -0.08, 0),
-                targetCenter.offset(0, 0, 0.35),
+                targetCenter.offset(0.40, 0.12, 0),
+                targetCenter.offset(-0.40, -0.10, 0),
+                targetCenter.offset(0, 0.08, 0.40),
+                targetCenter.offset(0, -0.08, -0.40),
                 targetCenter
             ];
 
             for (const lookTarget of sweepTargets) {
                 await this.bot.lookAt(lookTarget, true);
-                await sleep(70);
+                await sleep(85);
             }
         } finally {
-            this.bot.setControlState('left', false);
-            this.bot.setControlState('right', false);
-            this.bot.setControlState('forward', false);
-            this.bot.setControlState('back', false);
-            if (wasSneaking) {
-                this.bot.setControlState('sneak', true);
-            }
+            await this.bot.lookAt(targetCenter, true);
         }
     }
 
@@ -1444,6 +1448,7 @@ export class MinecraftBot {
         let stalledCycles = 0;
         let completedByClearingTargets = false;
         let lastBrokenPos = null;
+        let lastStackTargetPos = null;
 
         try {
             while (this.bot && this.status === 'online') {
@@ -1483,6 +1488,11 @@ export class MinecraftBot {
 
                     blocks = Array.isArray(scannedTargets) ? [...scannedTargets] : [];
                     targetSource = blocks.length > 0 ? `scan(r=${scanRadius})` : 'none';
+                }
+
+                if (blocks.length === 0 && lastStackTargetPos) {
+                    blocks = [lastStackTargetPos.clone ? lastStackTargetPos.clone() : lastStackTargetPos];
+                    targetSource = 'stack-fallback';
                 }
 
                 if (blocks.length === 0) {
@@ -1553,14 +1563,21 @@ export class MinecraftBot {
                     this.stats.spawnersBroken++;
                     stalledCycles = 0;
                     lastBrokenPos = targetPos.clone ? targetPos.clone() : targetPos;
+                    lastStackTargetPos = null;
 
                     const progressMsg = `[Spawner] Slot ${this.slot}: +1 spawner kirildi | Toplam: ${totalBroken}`;
                     logger.info(progressMsg);
                     notify(progressMsg);
 
                     await this.refreshProtectionView(targetPos);
+                } else if (breakResult.reason === 'stack_remaining') {
+                    stalledCycles = 0;
+                    lastBrokenPos = targetPos.clone ? targetPos.clone() : targetPos;
+                    lastStackTargetPos = targetPos.clone ? targetPos.clone() : targetPos;
+                    await this.refreshProtectionView(targetPos);
                 } else if (breakResult.broken && breakResult.reason === 'already_gone') {
                     stalledCycles = 0;
+                    lastStackTargetPos = null;
                 } else {
                     stalledCycles++;
                     if (stalledCycles % 5 === 0) {
