@@ -1374,34 +1374,52 @@ export class MinecraftBot {
     }
 
     async refreshProtectionView(referencePos) {
-        if (!this.bot || this.status !== 'online' || !referencePos) {
+        if (!this.bot || this.status !== 'online' || this.manualStopRequested || !referencePos) {
             return;
         }
 
         const targetCenter = referencePos.offset(0.5, 0.5, 0.5);
-
-        try {
-            await this.bot.lookAt(targetCenter, true);
-
-            const sweepTargets = [
-                targetCenter.offset(0.40, 0.12, 0),
-                targetCenter.offset(-0.40, -0.10, 0),
-                targetCenter.offset(0, 0.08, 0.40),
-                targetCenter.offset(0, -0.08, -0.40),
-                targetCenter
-            ];
-
-            for (const lookTarget of sweepTargets) {
-                await this.bot.lookAt(lookTarget, true);
-                await sleep(85);
+        const safeLookAt = async (lookTarget) => {
+            const bot = this.bot;
+            if (!bot || this.status !== 'online' || this.manualStopRequested) {
+                return false;
             }
-        } finally {
-            await this.bot.lookAt(targetCenter, true);
+
+            try {
+                await bot.lookAt(lookTarget, true);
+                return true;
+            } catch (_) {
+                return false;
+            }
+        };
+
+        if (!(await safeLookAt(targetCenter))) {
+            return;
         }
+
+        const sweepTargets = [
+            targetCenter.offset(0.40, 0.12, 0),
+            targetCenter.offset(-0.40, -0.10, 0),
+            targetCenter.offset(0, 0.08, 0.40),
+            targetCenter.offset(0, -0.08, -0.40),
+            targetCenter
+        ];
+
+        for (const lookTarget of sweepTargets) {
+            if (!(await safeLookAt(lookTarget))) {
+                return;
+            }
+            await sleep(85);
+            if (!this.bot || this.status !== 'online' || this.manualStopRequested) {
+                return;
+            }
+        }
+
+        await safeLookAt(targetCenter);
     }
 
     async executeProtectionSimple() {
-        if (!this.bot || this.status !== 'online') return;
+        if (!this.bot || this.status !== 'online' || this.manualStopRequested) return;
         if (this._protectionRunning) return;
         if (this.isInLobby) {
             logger.warn(`Slot ${this.slot}: Protection triggered in lobby, aborting.`);
@@ -1432,7 +1450,7 @@ export class MinecraftBot {
         if (startDelay > 0) {
             await sleep(startDelay);
         }
-        if (!this.bot || this.status !== 'online' || this.isInLobby) {
+        if (!this.bot || this.status !== 'online' || this.manualStopRequested || this.isInLobby) {
             return;
         }
 
@@ -1451,7 +1469,7 @@ export class MinecraftBot {
         let lastStackTargetPos = null;
 
         try {
-            while (this.bot && this.status === 'online') {
+            while (this.bot && this.status === 'online' && !this.manualStopRequested) {
                 if (this.isInLobby) {
                     logger.warn(`Slot ${this.slot}: Lobby detected during protection, aborting.`);
                     break;
@@ -1501,6 +1519,9 @@ export class MinecraftBot {
                     if (lastBrokenPos && emptyScanCount <= requiredEmptyScans) {
                         logger.info(`[Spawner] Slot ${this.slot}: Hedef gorunmuyor, son kirilan bolgede gorus yenileniyor.`);
                         await this.refreshProtectionView(lastBrokenPos);
+                        if (!this.bot || this.status !== 'online' || this.manualStopRequested) {
+                            break;
+                        }
                     }
 
                     if (!noTargetSince) {
@@ -1570,11 +1591,17 @@ export class MinecraftBot {
                     notify(progressMsg);
 
                     await this.refreshProtectionView(targetPos);
+                    if (!this.bot || this.status !== 'online' || this.manualStopRequested) {
+                        break;
+                    }
                 } else if (breakResult.reason === 'stack_remaining') {
                     stalledCycles = 0;
                     lastBrokenPos = targetPos.clone ? targetPos.clone() : targetPos;
                     lastStackTargetPos = targetPos.clone ? targetPos.clone() : targetPos;
                     await this.refreshProtectionView(targetPos);
+                    if (!this.bot || this.status !== 'online' || this.manualStopRequested) {
+                        break;
+                    }
                 } else if (breakResult.broken && breakResult.reason === 'already_gone') {
                     stalledCycles = 0;
                     lastStackTargetPos = null;
