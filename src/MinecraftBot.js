@@ -1360,11 +1360,15 @@ export class MinecraftBot {
         const protectionConfig = this.config.settings.protection || {};
         const startDelay = Math.max(0, protectionConfig.startDelay ?? 150);
         const blockName = protectionConfig.blockType || 'spawner';
-        const radius = protectionConfig.radius || 64;
+        const baseRadius = protectionConfig.radius || 64;
+        const maxScanRadius = Math.max(baseRadius, protectionConfig.maxScanRadius ?? 192);
+        const scanRadiusStep = Math.max(8, protectionConfig.scanRadiusStep ?? 16);
+        const savedTargetsRadius = Math.max(baseRadius, protectionConfig.savedTargetsRadius ?? maxScanRadius);
         const maxBlocksPerScan = Math.max(1, protectionConfig.maxBlocksPerScan ?? 256);
         const maxBreakReach = Math.max(1, protectionConfig.maxBreakReach ?? 5.0);
-        const noTargetConfirmMs = Math.max(500, Math.min(10000, protectionConfig.protectionClearConfirmMs ?? 2000));
+        const noTargetConfirmMs = Math.max(5000, protectionConfig.protectionClearConfirmMs ?? 20000);
         const noTargetRescanDelay = Math.max(80, protectionConfig.noTargetRescanDelay ?? 220);
+        const requiredEmptyScans = Math.max(3, protectionConfig.requiredEmptyScans ?? 12);
         const postBreakDelay = Math.max(0, protectionConfig.postBreakDelay ?? 120);
         const maxStalledProtectionCycles = Math.max(20, protectionConfig.maxStalledProtectionCycles ?? 80);
 
@@ -1389,6 +1393,7 @@ export class MinecraftBot {
 
         let totalBroken = 0;
         let noTargetSince = null;
+        let emptyScanCount = 0;
         let stalledCycles = 0;
         let completedByClearingTargets = false;
 
@@ -1410,18 +1415,39 @@ export class MinecraftBot {
                     break;
                 }
 
-                const targetResult = this.getProtectionTargets(blockName, maxBlocksPerScan, radius, {
-                    includeMissingSavedTargets: false
-                });
+                const scanRadius = Math.min(maxScanRadius, baseRadius + (emptyScanCount * scanRadiusStep));
+                const savedTargets = this.getSavedSpawnerTargets(
+                    blockName,
+                    maxBlocksPerScan,
+                    savedTargetsRadius,
+                    { includeMissing: false }
+                );
 
-                const blocks = Array.isArray(targetResult.targets) ? [...targetResult.targets] : [];
+                let blocks = Array.isArray(savedTargets) ? [...savedTargets] : [];
+                let targetSource = blocks.length > 0 ? 'afkProfile' : 'none';
 
                 if (blocks.length === 0) {
+                    const scannedTargets = this.bot.findBlocks({
+                        matching: (block) => block.name === blockName,
+                        maxDistance: scanRadius,
+                        count: maxBlocksPerScan
+                    });
+
+                    blocks = Array.isArray(scannedTargets) ? [...scannedTargets] : [];
+                    targetSource = blocks.length > 0 ? `scan(r=${scanRadius})` : 'none';
+                }
+
+                if (blocks.length === 0) {
+                    emptyScanCount++;
                     if (!noTargetSince) {
                         noTargetSince = Date.now();
                     }
 
-                    if ((Date.now() - noTargetSince) >= noTargetConfirmMs) {
+                    if (emptyScanCount % 5 === 0) {
+                        logger.info(`[Spawner] Slot ${this.slot}: hedef bulunamadi (${targetSource}), bos tarama=${emptyScanCount}, yaricap=${scanRadius}`);
+                    }
+
+                    if ((Date.now() - noTargetSince) >= noTargetConfirmMs && emptyScanCount >= requiredEmptyScans) {
                         completedByClearingTargets = true;
                         break;
                     }
@@ -1431,6 +1457,7 @@ export class MinecraftBot {
                 }
 
                 noTargetSince = null;
+                emptyScanCount = 0;
 
                 const currentPos = this.bot?.entity?.position;
                 if (!currentPos) {
@@ -1446,7 +1473,7 @@ export class MinecraftBot {
                 if (reachableTargets.length === 0) {
                     stalledCycles++;
                     if (stalledCycles % 5 === 0) {
-                        logger.warn(`[Spawner] Slot ${this.slot}: ${blocks.length} hedef bulundu (${targetResult.source}) ama menzil disi.`);
+                        logger.warn(`[Spawner] Slot ${this.slot}: ${blocks.length} hedef bulundu (${targetSource}) ama menzil disi.`);
                     }
                     if (stalledCycles >= maxStalledProtectionCycles) {
                         logger.warn(`Slot ${this.slot}: Protection stalled (out of reach) too long, stopping.`);
