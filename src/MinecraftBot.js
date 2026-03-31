@@ -1,5 +1,4 @@
 import mineflayer from 'mineflayer';
-import nbt from 'prismarine-nbt';
 import logger from './utils/Logger.js';
 import { InventoryManager } from './minecraft/managers/InventoryManager.js';
 import { ActivityManager } from './minecraft/managers/ActivityManager.js';
@@ -7,86 +6,6 @@ import { ConnectionManager } from './minecraft/managers/ConnectionManager.js';
 
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-function getPickaxeTierScore(name) {
-    if (!name) return 0;
-    if (name.includes('netherite')) return 50;
-    if (name.includes('diamond')) return 40;
-    if (name.includes('iron')) return 30;
-    if (name.includes('stone')) return 20;
-    if (name.includes('wooden')) return 10;
-    if (name.includes('golden')) return 5;
-    return 0;
-}
-
-function getSilkTouchLevel(item) {
-    if (!item) return 0;
-
-    try {
-        const enchantments = Array.isArray(item.enchants) ? item.enchants : [];
-        let silk = 0;
-
-        for (const ench of enchantments) {
-            const name = String(ench?.name ?? ench?.id ?? '');
-            const lvl = Number(ench?.lvl ?? ench?.level ?? 0);
-            if (name.includes('silk_touch')) {
-                silk = Math.max(silk, lvl);
-            }
-        }
-
-        if (silk > 0) {
-            return silk;
-        }
-    } catch (_) {
-        // Fall back to raw NBT parsing below.
-    }
-
-    const rawNbt = item.nbt;
-    if (!rawNbt) return 0;
-
-    try {
-        const simplified = nbt.simplify(rawNbt);
-        const enchantments =
-            simplified?.Enchantments ??
-            simplified?.StoredEnchantments ??
-            simplified?.ench ??
-            simplified?.tag?.Enchantments ??
-            simplified?.tag?.StoredEnchantments ??
-            simplified?.tag?.ench ??
-            [];
-
-        let silk = 0;
-        for (const ench of enchantments) {
-            const id = String(ench?.id ?? ench?.name ?? '');
-            const lvl = Number(ench?.lvl ?? ench?.level ?? 0);
-            if (id.includes('silk_touch')) {
-                silk = Math.max(silk, lvl);
-            }
-        }
-
-        return silk;
-    } catch (_) {
-        return 0;
-    }
-}
-
-function pickBestSilkTouchPickaxe(items) {
-    let best = null;
-
-    for (const item of items) {
-        if (!item?.name?.includes('pickaxe')) continue;
-
-        const silkLevel = getSilkTouchLevel(item);
-        if (silkLevel <= 0) continue;
-
-        const score = (silkLevel * 100) + getPickaxeTierScore(item.name);
-        if (!best || score > best.score) {
-            best = { item, score };
-        }
-    }
-
-    return best?.item ?? null;
 }
 
 function extractReasonText(value) {
@@ -927,11 +846,7 @@ export class MinecraftBot {
     }
 
     getProtectionPickaxe() {
-        if (!this.bot) {
-            return null;
-        }
-
-        return pickBestSilkTouchPickaxe(this.bot.inventory.items());
+        return this.getBestPickaxe();
     }
 
     async equipProtectionPickaxe(force = false) {
@@ -1050,7 +965,7 @@ export class MinecraftBot {
         await this.ensureProtectionSneak();
         const protectionPickaxe = await this.equipProtectionPickaxe(true);
         if (!protectionPickaxe) {
-            const msg = `⚠️ Slot ${this.slot}: Spawner koruma icin Silk Touch pickaxe bulunamadi.`;
+            const msg = `⚠️ Slot ${this.slot}: Spawner koruma icin pickaxe bulunamadi.`;
             logger.warn(msg);
             notify(msg);
             this._protectionRunning = false;
