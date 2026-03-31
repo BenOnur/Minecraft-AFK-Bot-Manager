@@ -1280,7 +1280,242 @@ export class MinecraftBot {
         return { broken: false, reason: 'ghost_block_persisted' };
     }
 
+    async breakSpawnerNormally(pos, blockName, options = {}) {
+        const preDigPause = Math.max(0, options.preDigPause ?? 80);
+        const verifyDelay = Math.max(0, options.verifyDelay ?? 200);
+        const digActionTimeout = Math.max(1000, options.digActionTimeout ?? 7000);
+        const breakRetryCount = Math.max(0, options.breakRetryCount ?? 2);
+        const breakRetryDelay = Math.max(0, options.breakRetryDelay ?? 220);
+
+        for (let attempt = 0; attempt <= breakRetryCount; attempt++) {
+            if (!this.bot || this.status !== 'online') {
+                return { broken: false, reason: 'bot_not_ready' };
+            }
+
+            const block = this.bot.blockAt(pos);
+            if (!block || block.name !== blockName) {
+                return { broken: true, reason: 'already_gone' };
+            }
+
+            try {
+                await this.equipPickaxe();
+                await this.bot.lookAt(pos.offset(0.5, 0.5, 0.5), true);
+                if (preDigPause > 0) {
+                    await sleep(preDigPause);
+                }
+
+                await Promise.race([
+                    this.bot.dig(block, true),
+                    sleep(digActionTimeout).then(() => {
+                        throw new Error('dig_timeout');
+                    })
+                ]);
+            } catch (error) {
+                if (error.message === 'dig_timeout' && this.bot?.stopDigging) {
+                    try {
+                        this.bot.stopDigging();
+                    } catch (_) {
+                        // ignore
+                    }
+                }
+
+                if (attempt >= breakRetryCount) {
+                    return {
+                        broken: false,
+                        reason: error.message === 'dig_timeout' ? 'dig_timeout' : 'dig_error'
+                    };
+                }
+
+                if (breakRetryDelay > 0) {
+                    await sleep(breakRetryDelay);
+                }
+                continue;
+            }
+
+            if (verifyDelay > 0) {
+                await sleep(verifyDelay);
+            }
+
+            const verifyBlock = this.bot?.blockAt(pos);
+            if (!verifyBlock || verifyBlock.name !== blockName) {
+                return { broken: true, reason: 'broken' };
+            }
+
+            if (attempt < breakRetryCount && breakRetryDelay > 0) {
+                await sleep(breakRetryDelay);
+            }
+        }
+
+        return { broken: false, reason: 'still_exists' };
+    }
+
+    async executeProtectionSimple() {
+        if (!this.bot || this.status !== 'online') return;
+        if (this._protectionRunning) return;
+        if (this.isInLobby) {
+            logger.warn(`Slot ${this.slot}: Protection triggered in lobby, aborting.`);
+            return;
+        }
+
+        const protectionConfig = this.config.settings.protection || {};
+        const startDelay = Math.max(0, protectionConfig.startDelay ?? 150);
+        const blockName = protectionConfig.blockType || 'spawner';
+        const radius = protectionConfig.radius || 64;
+        const maxBlocksPerScan = Math.max(1, protectionConfig.maxBlocksPerScan ?? 256);
+        const maxBreakReach = Math.max(1, protectionConfig.maxBreakReach ?? 5.0);
+        const noTargetConfirmMs = Math.max(500, Math.min(10000, protectionConfig.protectionClearConfirmMs ?? 2000));
+        const noTargetRescanDelay = Math.max(80, protectionConfig.noTargetRescanDelay ?? 220);
+        const postBreakDelay = Math.max(0, protectionConfig.postBreakDelay ?? 120);
+        const maxStalledProtectionCycles = Math.max(20, protectionConfig.maxStalledProtectionCycles ?? 80);
+
+        const notify = (message) => {
+            if (this.onInventoryAlert) {
+                this.onInventoryAlert(message);
+            }
+        };
+
+        if (startDelay > 0) {
+            await sleep(startDelay);
+        }
+        if (!this.bot || this.status !== 'online' || this.isInLobby) {
+            return;
+        }
+
+        this._protectionRunning = true;
+        this.bot.setControlState('sneak', true);
+        await this.equipPickaxe(true);
+
+        logger.info(`[Spawner] Slot ${this.slot}: Normal protection mode started (afkset targets first).`);
+
+        let totalBroken = 0;
+        let noTargetSince = null;
+        let stalledCycles = 0;
+        let completedByClearingTargets = false;
+
+        try {
+            while (this.bot && this.status === 'online') {
+                if (this.isInLobby) {
+                    logger.warn(`Slot ${this.slot}: Lobby detected during protection, aborting.`);
+                    break;
+                }
+
+                if (this.isEnemyNearby()) {
+                    logger.error(`Slot ${this.slot}: Enemy too close during protection, emergency stop.`);
+                    await this.stop();
+                    return;
+                }
+
+                if (this.bot.inventory.emptySlotCount() <= 2) {
+                    logger.warn(`Slot ${this.slot}: Inventory nearly full, stopping protection.`);
+                    break;
+                }
+
+                const targetResult = this.getProtectionTargets(blockName, maxBlocksPerScan, radius, {
+                    includeMissingSavedTargets: false
+                });
+
+                const blocks = Array.isArray(targetResult.targets) ? [...targetResult.targets] : [];
+
+                if (blocks.length === 0) {
+                    if (!noTargetSince) {
+                        noTargetSince = Date.now();
+                    }
+
+                    if ((Date.now() - noTargetSince) >= noTargetConfirmMs) {
+                        completedByClearingTargets = true;
+                        break;
+                    }
+
+                    await sleep(noTargetRescanDelay);
+                    continue;
+                }
+
+                noTargetSince = null;
+
+                const currentPos = this.bot?.entity?.position;
+                if (!currentPos) {
+                    await sleep(noTargetRescanDelay);
+                    continue;
+                }
+
+                const reachableTargets = blocks
+                    .map(pos => ({ pos, dist: currentPos.distanceTo(pos.offset(0.5, 0.5, 0.5)) }))
+                    .filter(item => Number.isFinite(item.dist) && item.dist <= maxBreakReach)
+                    .sort((a, b) => a.dist - b.dist);
+
+                if (reachableTargets.length === 0) {
+                    stalledCycles++;
+                    if (stalledCycles % 5 === 0) {
+                        logger.warn(`[Spawner] Slot ${this.slot}: ${blocks.length} hedef bulundu (${targetResult.source}) ama menzil disi.`);
+                    }
+                    if (stalledCycles >= maxStalledProtectionCycles) {
+                        logger.warn(`Slot ${this.slot}: Protection stalled (out of reach) too long, stopping.`);
+                        break;
+                    }
+                    await sleep(noTargetRescanDelay);
+                    continue;
+                }
+
+                const targetPos = reachableTargets[0].pos;
+                this.lastProtectionTargetPos = targetPos;
+
+                const breakResult = await this.breakSpawnerNormally(targetPos, blockName, {
+                    preDigPause: protectionConfig.preDigPause,
+                    verifyDelay: protectionConfig.verifyDelay,
+                    digActionTimeout: protectionConfig.digActionTimeout,
+                    breakRetryCount: protectionConfig.breakRetryCount,
+                    breakRetryDelay: protectionConfig.breakRetryDelay
+                });
+
+                if (breakResult.broken && breakResult.reason === 'broken') {
+                    totalBroken++;
+                    this.stats.spawnersBroken++;
+                    stalledCycles = 0;
+
+                    const progressMsg = `[Spawner] Slot ${this.slot}: +1 spawner kirildi | Toplam: ${totalBroken}`;
+                    logger.info(progressMsg);
+                    notify(progressMsg);
+                } else if (breakResult.broken && breakResult.reason === 'already_gone') {
+                    stalledCycles = 0;
+                } else {
+                    stalledCycles++;
+                    if (stalledCycles % 5 === 0) {
+                        logger.warn(`[Spawner] Slot ${this.slot}: hedef kirilamadi reason=${breakResult.reason} (${targetPos.x},${targetPos.y},${targetPos.z})`);
+                    }
+                    if (stalledCycles >= maxStalledProtectionCycles) {
+                        logger.warn(`Slot ${this.slot}: Protection stalled too long, stopping.`);
+                        break;
+                    }
+                }
+
+                if (postBreakDelay > 0) {
+                    await sleep(postBreakDelay);
+                }
+            }
+        } finally {
+            if (this.bot) {
+                this.bot.setControlState('sneak', false);
+            }
+            this.lastProtectionTargetPos = null;
+            this._protectionRunning = false;
+        }
+
+        if (completedByClearingTargets && this.bot && this.status === 'online') {
+            const completeMsg = `[Spawner] Slot ${this.slot}: Tum spawnerlar temizlendi (${totalBroken}). /spawn 1-5 gidiliyor.`;
+            logger.info(completeMsg);
+            notify(completeMsg);
+            await this.retreatToRandomSpawnAndStop();
+            return;
+        }
+
+        if (this.bot) {
+            await this.stop();
+        }
+    }
+
     async executeProtection() {
+        return this.executeProtectionSimple();
+
         if (!this.bot || this.status !== 'online') return;
         if (this._protectionRunning) return;
         if (this.isInLobby) {
@@ -1301,8 +1536,10 @@ export class MinecraftBot {
         const stackedNoGainRetryDelay = Math.min(1000, Math.max(100, protectionConfig.stackedNoGainRetryDelay ?? 350));
         const stackedNoGainBackoffAfter = Math.max(8, protectionConfig.stackedNoGainBackoffAfter ?? 8);
         const randomBreakIntervalMaxMs = Math.min(800, Math.max(0, protectionConfig.randomBreakIntervalMaxMs ?? 800));
-        const packetDigEnabled = protectionConfig.packetDigEnabled !== false;
+        const vanillaDigPriority = protectionConfig.vanillaDigPriority !== false;
+        const packetDigEnabled = !vanillaDigPriority && protectionConfig.packetDigEnabled !== false;
         let packetDigRuntimeEnabled = packetDigEnabled;
+        const stackBatchSize = Math.max(1, protectionConfig.stackBatchSize ?? 64);
         const hasSavedAfkTargets = Array.isArray(this.afkProfile?.spawners) && this.afkProfile.spawners.length > 0;
 
         const configuredInventoryConfirmTimeout =
@@ -1342,6 +1579,8 @@ export class MinecraftBot {
             blockGoneStableMs: Math.max(0, protectionConfig.blockGoneStableMs ?? 500),
             blockGoneRecheckInterval: Math.max(20, protectionConfig.blockGoneRecheckInterval ?? 100)
         };
+
+        logger.info(`Slot ${this.slot}: Protection dig mode = ${packetDigEnabled ? 'packet-first' : 'vanilla-first'}`);
 
         if (startDelay > 0) {
             await sleep(startDelay);
@@ -1570,9 +1809,7 @@ export class MinecraftBot {
                         if (breakResult.broken) {
                             const stillSameBlock = this.bot?.blockAt(pos)?.name === blockName;
                             const gainedByInventory = Math.max(0, Number(breakResult.gained || 0));
-                            const gained = gainedByInventory > 0
-                                ? gainedByInventory
-                                : (stillSameBlock ? 0 : 1);
+                            const gained = stillSameBlock ? 0 : 1;
 
                             if (gained > 0) {
                                 noGainStreak = 0;
@@ -1585,7 +1822,15 @@ export class MinecraftBot {
                                 logger.info(progressMsg);
                                 notify(progressMsg);
                             } else {
-                                noGainStreak++;
+                                if (gainedByInventory > 0) {
+                                    noGainStreak = 0;
+                                    targetLastGainAt = Date.now();
+                                    lastGainAt = targetLastGainAt;
+                                    const estimatedLayers = Math.max(1, Math.round(gainedByInventory / stackBatchSize));
+                                    logger.info(`[Spawner] Slot ${this.slot}: Stack hasar +${gainedByInventory} item (~${estimatedLayers} katman), blok hala duruyor.`);
+                                } else {
+                                    noGainStreak++;
+                                }
                                 if (noGainStreak % 10 === 0) {
                                     logger.warn(`[Spawner] Slot ${this.slot}: hedefte ilerleme yok x${noGainStreak} (${pos.x},${pos.y},${pos.z})`);
                                 }
