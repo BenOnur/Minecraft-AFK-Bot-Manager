@@ -1,4 +1,5 @@
 import mineflayer from 'mineflayer';
+import nbt from 'prismarine-nbt';
 import logger from './utils/Logger.js';
 import { InventoryManager } from './minecraft/managers/InventoryManager.js';
 import { ActivityManager } from './minecraft/managers/ActivityManager.js';
@@ -6,6 +7,57 @@ import { ConnectionManager } from './minecraft/managers/ConnectionManager.js';
 
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function getPickaxeTierScore(name) {
+    if (!name) return 0;
+    if (name.includes('netherite')) return 50;
+    if (name.includes('diamond')) return 40;
+    if (name.includes('iron')) return 30;
+    if (name.includes('stone')) return 20;
+    if (name.includes('wooden')) return 10;
+    if (name.includes('golden')) return 5;
+    return 0;
+}
+
+function getSilkTouchLevel(rawNbt) {
+    if (!rawNbt) return 0;
+
+    try {
+        const simplified = nbt.simplify(rawNbt);
+        const enchantments = simplified?.Enchantments ?? simplified?.tag?.Enchantments ?? [];
+
+        let silk = 0;
+        for (const ench of enchantments) {
+            const id = String(ench?.id ?? '');
+            const lvl = Number(ench?.lvl ?? 0);
+            if (id.includes('silk_touch')) {
+                silk = Math.max(silk, lvl);
+            }
+        }
+
+        return silk;
+    } catch (_) {
+        return 0;
+    }
+}
+
+function pickBestSilkTouchPickaxe(items) {
+    let best = null;
+
+    for (const item of items) {
+        if (!item?.name?.includes('pickaxe')) continue;
+
+        const silkLevel = getSilkTouchLevel(item.nbt);
+        if (silkLevel <= 0) continue;
+
+        const score = (silkLevel * 100) + getPickaxeTierScore(item.name);
+        if (!best || score > best.score) {
+            best = { item, score };
+        }
+    }
+
+    return best?.item ?? null;
 }
 
 function extractReasonText(value) {
@@ -775,7 +827,7 @@ export class MinecraftBot {
             return false;
         }
 
-        if (blockName && block.name !== blockName) {
+        if (blockName && !this.isSpawnerBlock(block, blockName)) {
             return false;
         }
 
@@ -790,12 +842,97 @@ export class MinecraftBot {
         }
     }
 
+    isSpawnerBlock(block, blockName = 'spawner') {
+        if (!block?.name) {
+            return false;
+        }
+
+        return block.name === blockName || (blockName === 'spawner' && block.name === 'mob_spawner');
+    }
+
+    scanNearbySpawners(radius, maxBlocksPerScan, blockName = 'spawner') {
+        if (!this.bot?.entity?.position) {
+            return [];
+        }
+
+        const origin = this.getProtectionOrigin() || this.bot.entity.position;
+        const registry = this.bot.registry;
+        const spawnerId =
+            registry?.blocksByName?.[blockName]?.id ??
+            registry?.blocksByName?.spawner?.id ??
+            registry?.blocksByName?.mob_spawner?.id ??
+            -1;
+
+        const blockPositions = spawnerId !== -1
+            ? this.bot.findBlocks({
+                matching: spawnerId,
+                maxDistance: radius,
+                count: maxBlocksPerScan,
+                point: origin
+            })
+            : this.bot.findBlocks({
+                matching: (block) => this.isSpawnerBlock(block, blockName),
+                maxDistance: radius,
+                count: maxBlocksPerScan,
+                point: origin
+            });
+
+        const unique = new Map();
+        for (const pos of blockPositions) {
+            const x = Math.round(pos.x);
+            const y = Math.round(pos.y);
+            const z = Math.round(pos.z);
+            unique.set(`${x}:${y}:${z}`, { x, y, z });
+        }
+
+        const list = [];
+        for (const point of unique.values()) {
+            const vec = this.toBlockVec3(point);
+            if (vec) {
+                list.push(vec);
+            }
+        }
+
+        list.sort((a, b) => origin.distanceSquared(a) - origin.distanceSquared(b));
+        return list;
+    }
+
+    getProtectionPickaxe() {
+        if (!this.bot) {
+            return null;
+        }
+
+        return pickBestSilkTouchPickaxe(this.bot.inventory.items());
+    }
+
+    async equipProtectionPickaxe(force = false) {
+        if (!this.bot) {
+            return null;
+        }
+
+        const pickaxe = this.getProtectionPickaxe();
+        if (!pickaxe) {
+            return null;
+        }
+
+        const heldItem = this.bot.inventory.slots[this.bot.getEquipmentDestSlot('hand')];
+        if (!force && heldItem && heldItem.slot === pickaxe.slot) {
+            return pickaxe;
+        }
+
+        try {
+            await this.bot.equip(pickaxe, 'hand');
+            logger.info(`Slot ${this.slot}: Equipped protection pickaxe ${pickaxe.name}`);
+            return pickaxe;
+        } catch (error) {
+            logger.error(`Slot ${this.slot}: Failed to equip protection pickaxe: ${error.message}`);
+            return null;
+        }
+    }
+
     async breakSpawnerNormally(pos, blockName, options = {}) {
-        const verifyDelay = Math.max(0, options.verifyDelay ?? 200);
         const breakRetryCount = Math.max(0, options.breakRetryCount ?? 2);
         const breakRetryDelay = Math.max(0, options.breakRetryDelay ?? 220);
-        const visibilityTimeout = Math.max(200, options.visibilityTimeout ?? 1400);
-        const stackReappearConfirmMs = Math.max(250, options.stackReappearConfirmMs ?? 1600);
 
         for (let attempt = 0; attempt <= breakRetryCount; attempt++) {
             if (!this.bot || this.status !== 'online' || this.manualStopRequested) {
@@ -803,18 +940,8 @@ export class MinecraftBot {
             }
 
             let block = this.bot.blockAt(pos);
-            const visibleUntil = Date.now() + visibilityTimeout;
 
-            while (Date.now() < visibleUntil) {
-                if (this.canDigFromCurrentPosition(block, blockName)) {
-                    break;
-                }
-
-                await sleep(90);
-                block = this.bot.blockAt(pos);
-            }
-
-            if (!block || block.name !== blockName) {
+            if (!this.isSpawnerBlock(block, blockName)) {
                 return { broken: false, reason: 'not_visible' };
             }
 
@@ -823,13 +950,13 @@ export class MinecraftBot {
             }
 
             try {
-                await this.equipPickaxe();
+                await this.equipProtectionPickaxe();
 
                 this.haltProtectionMovement();
                 await this.ensureProtectionSneak();
 
                 block = this.bot.blockAt(pos);
-                if (!block || block.name !== blockName) {
+                if (!this.isSpawnerBlock(block, blockName)) {
                     return { broken: false, reason: 'not_visible' };
                 }
 
@@ -838,6 +965,7 @@ export class MinecraftBot {
                 }
 
                 await this.bot.dig(block);
+                return { broken: true, reason: 'broken' };
             } catch (error) {
                 if (attempt >= breakRetryCount) {
                     return {
@@ -851,30 +979,9 @@ export class MinecraftBot {
                 }
                 continue;
             }
-
-            if (verifyDelay > 0) {
-                await sleep(verifyDelay);
-            }
-
-            let verifyBlock = this.bot?.blockAt(pos);
-            if (!verifyBlock || verifyBlock.name !== blockName) {
-                const reappearUntil = Date.now() + stackReappearConfirmMs;
-                while (Date.now() < reappearUntil) {
-                    await sleep(110);
-
-                    verifyBlock = this.bot?.blockAt(pos);
-                    if (verifyBlock && verifyBlock.name === blockName) {
-                        return { broken: false, reason: 'stack_remaining' };
-                    }
-                }
-
-                return { broken: true, reason: 'broken' };
-            }
-
-            return { broken: false, reason: 'stack_remaining' };
         }
 
-        return { broken: false, reason: 'still_exists' };
+        return { broken: false, reason: 'dig_error' };
     }
 
     async executeProtectionSimple() {
@@ -891,16 +998,11 @@ export class MinecraftBot {
         const baseRadius = protectionConfig.radius || 64;
         const maxScanRadius = Math.max(baseRadius, protectionConfig.maxScanRadius ?? 192);
         const scanRadiusStep = Math.max(8, protectionConfig.scanRadiusStep ?? 16);
-        const savedTargetsRadius = Math.max(baseRadius, protectionConfig.savedTargetsRadius ?? maxScanRadius);
         const maxBlocksPerScan = Math.max(1, protectionConfig.maxBlocksPerScan ?? 256);
         const maxBreakReach = Math.max(1, protectionConfig.maxBreakReach ?? 5.0);
-        const noTargetConfirmMs = Math.max(5000, protectionConfig.protectionClearConfirmMs ?? 20000);
         const noTargetRescanDelay = Math.max(80, protectionConfig.noTargetRescanDelay ?? 220);
         const requiredEmptyScans = Math.max(3, protectionConfig.requiredEmptyScans ?? 12);
         const postBreakDelay = Math.max(0, protectionConfig.postBreakDelay ?? 120);
-        const maxStalledProtectionCycles = Math.max(20, protectionConfig.maxStalledProtectionCycles ?? 80);
-        const visibilityTimeout = Math.max(200, protectionConfig.visibilityTimeout ?? 1400);
-        const stackReappearConfirmMs = Math.max(250, protectionConfig.stackReappearConfirmMs ?? 1600);
 
         const notify = (message) => {
             if (this.onInventoryAlert) {
@@ -917,14 +1019,22 @@ export class MinecraftBot {
 
         this._protectionRunning = true;
         await this.ensureProtectionSneak();
-        await this.equipPickaxe(true);
+        const protectionPickaxe = await this.equipProtectionPickaxe(true);
+        if (!protectionPickaxe) {
+            const msg = `⚠️ Slot ${this.slot}: Spawner koruma icin Silk Touch pickaxe bulunamadi.`;
+            logger.warn(msg);
+            notify(msg);
+            this._protectionRunning = false;
+            return;
+        }
 
-        logger.info(`[Spawner] Slot ${this.slot}: Normal protection mode started (afkset targets first).`);
+        this.haltProtectionMovement();
+        await this.ensureProtectionSneak();
+
+        logger.info(`[Spawner] Slot ${this.slot}: Spawner protection started.`);
 
         let totalBroken = 0;
-        let noTargetSince = null;
         let emptyScanCount = 0;
-        let stalledCycles = 0;
         let completedByClearingTargets = false;
 
         try {
@@ -946,45 +1056,16 @@ export class MinecraftBot {
                 }
 
                 const scanRadius = Math.min(maxScanRadius, baseRadius + (emptyScanCount * scanRadiusStep));
-                const origin = this.getProtectionOrigin();
-                const savedTargets = this.getSavedSpawnerTargets(
-                    blockName,
-                    maxBlocksPerScan,
-                    savedTargetsRadius,
-                    { includeMissing: false }
-                );
-
-                let blocks = Array.isArray(savedTargets) ? [...savedTargets] : [];
-                let targetSource = blocks.length > 0 ? 'afkProfile' : 'none';
-
-                if (blocks.length === 0) {
-                    const scannedTargets = this.bot.findBlocks({
-                        matching: (block) => block.name === blockName,
-                        maxDistance: scanRadius,
-                        count: maxBlocksPerScan,
-                        ...(origin ? { point: origin } : {})
-                    });
-
-                    blocks = Array.isArray(scannedTargets) ? [...scannedTargets] : [];
-                    targetSource = blocks.length > 0 ? `scan(r=${scanRadius})` : 'none';
-                }
-
-                if (blocks.length > 1 && origin) {
-                    blocks.sort((a, b) => origin.distanceSquared(a) - origin.distanceSquared(b));
-                }
+                const blocks = this.scanNearbySpawners(scanRadius, maxBlocksPerScan, blockName);
 
                 if (blocks.length === 0) {
                     emptyScanCount++;
 
-                    if (!noTargetSince) {
-                        noTargetSince = Date.now();
-                    }
-
                     if (emptyScanCount % 5 === 0) {
-                        logger.info(`[Spawner] Slot ${this.slot}: hedef bulunamadi (${targetSource}), bos tarama=${emptyScanCount}, yaricap=${scanRadius}`);
+                        logger.info(`[Spawner] Slot ${this.slot}: hedef bulunamadi, bos tarama=${emptyScanCount}, yaricap=${scanRadius}`);
                     }
 
-                    if ((Date.now() - noTargetSince) >= noTargetConfirmMs && emptyScanCount >= requiredEmptyScans) {
+                    if (emptyScanCount >= requiredEmptyScans) {
                         completedByClearingTargets = true;
                         break;
                     }
@@ -993,7 +1074,6 @@ export class MinecraftBot {
                     continue;
                 }
 
-                noTargetSince = null;
                 emptyScanCount = 0;
 
                 let brokenInPass = 0;
@@ -1033,6 +1113,10 @@ export class MinecraftBot {
                     }
 
                     const block = this.bot.blockAt(targetPos);
+                    if (!this.isSpawnerBlock(block, blockName)) {
+                        continue;
+                    }
+
                     if (!this.canDigFromCurrentPosition(block, blockName)) {
                         continue;
                     }
@@ -1040,11 +1124,8 @@ export class MinecraftBot {
                     this.lastProtectionTargetPos = targetPos;
 
                     const breakResult = await this.breakSpawnerNormally(targetPos, blockName, {
-                        verifyDelay: protectionConfig.verifyDelay,
                         breakRetryCount: protectionConfig.breakRetryCount,
-                        breakRetryDelay: protectionConfig.breakRetryDelay,
-                        visibilityTimeout,
-                        stackReappearConfirmMs
+                        breakRetryDelay: protectionConfig.breakRetryDelay
                     });
 
                     if (breakResult.broken && breakResult.reason === 'broken') {
@@ -1055,8 +1136,6 @@ export class MinecraftBot {
                         const progressMsg = `[Spawner] Slot ${this.slot}: +1 spawner kirildi | Toplam: ${totalBroken}`;
                         logger.info(progressMsg);
                         notify(progressMsg);
-                    } else if (breakResult.reason === 'stack_remaining') {
-                        brokenInPass++;
                     } else if (breakResult.reason === 'dig_error') {
                         logger.warn(`[Spawner] Slot ${this.slot}: hedef kirilamadi reason=${breakResult.reason} (${targetPos.x},${targetPos.y},${targetPos.z})`);
                     }
@@ -1067,31 +1146,29 @@ export class MinecraftBot {
                 }
 
                 if (brokenInPass === 0) {
-                    stalledCycles++;
-                    if (stalledCycles % 5 === 0) {
-                        logger.warn(`[Spawner] Slot ${this.slot}: Bu turda hic spawner kirilamadi (${targetSource}).`);
-                    }
-                    if (stalledCycles >= maxStalledProtectionCycles) {
-                        logger.warn(`Slot ${this.slot}: Protection stalled too long, stopping.`);
-                        break;
-                    }
-
-                    await sleep(noTargetRescanDelay);
-                    continue;
+                    const stalledMsg = `⚠️ Slot ${this.slot}: Bu turda hic spawner kirilamadi.`;
+                    logger.warn(stalledMsg);
+                    notify(stalledMsg);
+                    break;
                 }
-
-                stalledCycles = 0;
 
                 if (postBreakDelay > 0) {
                     await sleep(postBreakDelay);
                 }
             }
         } finally {
-            if (this.bot) {
-                this.bot.setControlState('sneak', false);
+            if (this.bot && this.status === 'online' && !this.manualStopRequested) {
+                await this.ensureProtectionSneak();
             }
             this.lastProtectionTargetPos = null;
             this._protectionRunning = false;
+        }
+
+        if (!completedByClearingTargets && totalBroken === 0) {
+            const notFoundMsg = `ℹ️ Slot ${this.slot}: Kayitli veya tespit edilen spawner yok.`;
+            logger.info(notFoundMsg);
+            notify(notFoundMsg);
+            return;
         }
 
         if (completedByClearingTargets && this.bot && this.status === 'online') {
@@ -1102,9 +1179,9 @@ export class MinecraftBot {
             return;
         }
 
-        if (this.bot) {
-            await this.stop();
-        }
+        const partialMsg = `⚠️ Slot ${this.slot}: Spawner kirma kismi tamamlandi. Kirilan spawner: ${totalBroken}`;
+        logger.warn(partialMsg);
+        notify(partialMsg);
     }
 
     async executeProtection() {
