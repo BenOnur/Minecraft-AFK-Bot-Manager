@@ -738,20 +738,36 @@ export class MinecraftBot {
         const visibilityTimeout = Math.max(200, options.visibilityTimeout ?? 1400);
         const stackReappearConfirmMs = Math.max(250, options.stackReappearConfirmMs ?? 1600);
 
+        const isBlockDiggable = (block) => {
+            if (!block || block.name !== blockName) {
+                return false;
+            }
+
+            if (typeof this.bot?.canDigBlock !== 'function') {
+                return true;
+            }
+
+            try {
+                return this.bot.canDigBlock(block);
+            } catch (_) {
+                return false;
+            }
+        };
+
         for (let attempt = 0; attempt <= breakRetryCount; attempt++) {
             if (!this.bot || this.status !== 'online') {
                 return { broken: false, reason: 'bot_not_ready' };
             }
 
             let block = this.bot.blockAt(pos);
-            if (!block || block.name !== blockName) {
+            if (!isBlockDiggable(block)) {
                 const visibleUntil = Date.now() + visibilityTimeout;
                 while (Date.now() < visibleUntil) {
                     await this.refreshProtectionView(pos);
                     await sleep(90);
 
                     block = this.bot.blockAt(pos);
-                    if (block && block.name === blockName) {
+                    if (isBlockDiggable(block)) {
                         break;
                     }
                 }
@@ -759,17 +775,53 @@ export class MinecraftBot {
                 if (!block || block.name !== blockName) {
                     return { broken: false, reason: 'not_visible' };
                 }
+
+                if (!isBlockDiggable(block)) {
+                    return { broken: false, reason: 'not_diggable' };
+                }
             }
 
             try {
                 await this.equipPickaxe();
+
+                if (this.bot?.stopDigging) {
+                    try {
+                        this.bot.stopDigging();
+                    } catch (_) {
+                        // ignore stale dig state cleanup errors
+                    }
+
+                    await sleep(50);
+                }
+
                 await this.bot.lookAt(pos.offset(0.5, 0.5, 0.5), true);
                 if (preDigPause > 0) {
                     await sleep(preDigPause);
                 }
 
+                block = this.bot.blockAt(pos);
+                if (!block || block.name !== blockName) {
+                    if (attempt >= breakRetryCount) {
+                        return { broken: false, reason: 'not_visible' };
+                    }
+                    if (breakRetryDelay > 0) {
+                        await sleep(breakRetryDelay);
+                    }
+                    continue;
+                }
+
+                if (!isBlockDiggable(block)) {
+                    if (attempt >= breakRetryCount) {
+                        return { broken: false, reason: 'not_diggable' };
+                    }
+                    if (breakRetryDelay > 0) {
+                        await sleep(breakRetryDelay);
+                    }
+                    continue;
+                }
+
                 await Promise.race([
-                    this.bot.dig(block, true),
+                    this.bot.dig(block, true, 'raycast'),
                     sleep(digActionTimeout).then(() => {
                         throw new Error('dig_timeout');
                     })
@@ -1000,9 +1052,32 @@ export class MinecraftBot {
                 }
 
                 const reachableTargets = blocks
-                    .map(pos => ({ pos, dist: currentPos.distanceTo(pos.offset(0.5, 0.5, 0.5)) }))
+                    .map(pos => {
+                        const block = this.bot?.blockAt(pos);
+                        let diggable = !!(block && block.name === blockName);
+
+                        if (diggable && typeof this.bot?.canDigBlock === 'function') {
+                            try {
+                                diggable = this.bot.canDigBlock(block);
+                            } catch (_) {
+                                diggable = false;
+                            }
+                        }
+
+                        return {
+                            pos,
+                            dist: currentPos.distanceTo(pos.offset(0.5, 0.5, 0.5)),
+                            diggable
+                        };
+                    })
                     .filter(item => Number.isFinite(item.dist) && item.dist <= maxBreakReach)
-                    .sort((a, b) => a.dist - b.dist);
+                    .sort((a, b) => {
+                        if (a.diggable !== b.diggable) {
+                            return a.diggable ? -1 : 1;
+                        }
+
+                        return a.dist - b.dist;
+                    });
 
                 if (reachableTargets.length === 0) {
                     stalledCycles++;
