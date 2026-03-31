@@ -1349,6 +1349,53 @@ export class MinecraftBot {
         return { broken: false, reason: 'still_exists' };
     }
 
+    async refreshProtectionView(referencePos) {
+        if (!this.bot || this.status !== 'online' || !referencePos) {
+            return;
+        }
+
+        const targetCenter = referencePos.offset(0.5, 0.5, 0.5);
+        const wasSneaking = this.bot.getControlState('sneak');
+        const lateralDirection = Math.random() > 0.5 ? 'left' : 'right';
+        const forwardDirection = Math.random() > 0.5 ? 'forward' : 'back';
+
+        try {
+            if (wasSneaking) {
+                this.bot.setControlState('sneak', false);
+            }
+
+            await this.bot.lookAt(targetCenter, true);
+
+            this.bot.setControlState(lateralDirection, true);
+            await sleep(180 + Math.floor(Math.random() * 80));
+            this.bot.setControlState(lateralDirection, false);
+
+            this.bot.setControlState(forwardDirection, true);
+            await sleep(90 + Math.floor(Math.random() * 60));
+            this.bot.setControlState(forwardDirection, false);
+
+            const sweepTargets = [
+                targetCenter.offset(0.35, 0.10, 0),
+                targetCenter.offset(-0.35, -0.08, 0),
+                targetCenter.offset(0, 0, 0.35),
+                targetCenter
+            ];
+
+            for (const lookTarget of sweepTargets) {
+                await this.bot.lookAt(lookTarget, true);
+                await sleep(70);
+            }
+        } finally {
+            this.bot.setControlState('left', false);
+            this.bot.setControlState('right', false);
+            this.bot.setControlState('forward', false);
+            this.bot.setControlState('back', false);
+            if (wasSneaking) {
+                this.bot.setControlState('sneak', true);
+            }
+        }
+    }
+
     async executeProtectionSimple() {
         if (!this.bot || this.status !== 'online') return;
         if (this._protectionRunning) return;
@@ -1396,6 +1443,7 @@ export class MinecraftBot {
         let emptyScanCount = 0;
         let stalledCycles = 0;
         let completedByClearingTargets = false;
+        let lastBrokenPos = null;
 
         try {
             while (this.bot && this.status === 'online') {
@@ -1439,6 +1487,12 @@ export class MinecraftBot {
 
                 if (blocks.length === 0) {
                     emptyScanCount++;
+
+                    if (lastBrokenPos && emptyScanCount <= requiredEmptyScans) {
+                        logger.info(`[Spawner] Slot ${this.slot}: Hedef gorunmuyor, son kirilan bolgede gorus yenileniyor.`);
+                        await this.refreshProtectionView(lastBrokenPos);
+                    }
+
                     if (!noTargetSince) {
                         noTargetSince = Date.now();
                     }
@@ -1498,10 +1552,13 @@ export class MinecraftBot {
                     totalBroken++;
                     this.stats.spawnersBroken++;
                     stalledCycles = 0;
+                    lastBrokenPos = targetPos.clone ? targetPos.clone() : targetPos;
 
                     const progressMsg = `[Spawner] Slot ${this.slot}: +1 spawner kirildi | Toplam: ${totalBroken}`;
                     logger.info(progressMsg);
                     notify(progressMsg);
+
+                    await this.refreshProtectionView(targetPos);
                 } else if (breakResult.broken && breakResult.reason === 'already_gone') {
                     stalledCycles = 0;
                 } else {
