@@ -295,6 +295,19 @@ export class MinecraftBot {
         return new this.bot.entity.position.constructor(x, y, z);
     }
 
+    getProtectionOrigin() {
+        if (!this.bot?.entity?.position) {
+            return null;
+        }
+
+        const anchor = this.getAfkAnchor();
+        if (!anchor) {
+            return this.bot.entity.position.clone();
+        }
+
+        return this.toBlockVec3(anchor) || this.bot.entity.position.clone();
+    }
+
     getSavedSpawnerTargets(blockName, maxBlocksPerScan, radius, options = {}) {
         if (!this.bot || !this.bot.entity) {
             return [];
@@ -307,7 +320,7 @@ export class MinecraftBot {
             return [];
         }
 
-        const currentPos = this.bot.entity.position;
+        const currentPos = this.getProtectionOrigin() || this.bot.entity.position;
         const maxDistanceSq = radius * radius;
         const targets = [];
 
@@ -729,116 +742,107 @@ export class MinecraftBot {
         return this.activityManager.isEnemyNearby();
     }
 
+    haltProtectionMovement() {
+        if (!this.bot) {
+            return;
+        }
+
+        if (typeof this.bot.clearControlStates === 'function') {
+            this.bot.clearControlStates();
+            return;
+        }
+
+        for (const state of ['forward', 'back', 'left', 'right', 'jump', 'sprint', 'sneak']) {
+            try {
+                this.bot.setControlState(state, false);
+            } catch (_) {
+                // ignore unsupported state resets
+            }
+        }
+    }
+
+    async ensureProtectionSneak() {
+        if (!this.bot) {
+            return;
+        }
+
+        this.bot.setControlState('sneak', true);
+        await sleep(40);
+    }
+
+    canDigFromCurrentPosition(block, blockName = null) {
+        if (!block) {
+            return false;
+        }
+
+        if (blockName && block.name !== blockName) {
+            return false;
+        }
+
+        if (typeof this.bot?.canDigBlock !== 'function') {
+            return true;
+        }
+
+        try {
+            return this.bot.canDigBlock(block);
+        } catch (_) {
+            return false;
+        }
+    }
+
     async breakSpawnerNormally(pos, blockName, options = {}) {
-        const preDigPause = Math.max(0, options.preDigPause ?? 80);
         const verifyDelay = Math.max(0, options.verifyDelay ?? 200);
-        const digActionTimeout = Math.max(1000, options.digActionTimeout ?? 7000);
         const breakRetryCount = Math.max(0, options.breakRetryCount ?? 2);
         const breakRetryDelay = Math.max(0, options.breakRetryDelay ?? 220);
         const visibilityTimeout = Math.max(200, options.visibilityTimeout ?? 1400);
         const stackReappearConfirmMs = Math.max(250, options.stackReappearConfirmMs ?? 1600);
 
-        const isBlockDiggable = (block) => {
-            if (!block || block.name !== blockName) {
-                return false;
-            }
-
-            if (typeof this.bot?.canDigBlock !== 'function') {
-                return true;
-            }
-
-            try {
-                return this.bot.canDigBlock(block);
-            } catch (_) {
-                return false;
-            }
-        };
-
         for (let attempt = 0; attempt <= breakRetryCount; attempt++) {
-            if (!this.bot || this.status !== 'online') {
+            if (!this.bot || this.status !== 'online' || this.manualStopRequested) {
                 return { broken: false, reason: 'bot_not_ready' };
             }
 
             let block = this.bot.blockAt(pos);
-            if (!isBlockDiggable(block)) {
-                const visibleUntil = Date.now() + visibilityTimeout;
-                while (Date.now() < visibleUntil) {
-                    await this.refreshProtectionView(pos);
-                    await sleep(90);
+            const visibleUntil = Date.now() + visibilityTimeout;
 
-                    block = this.bot.blockAt(pos);
-                    if (isBlockDiggable(block)) {
-                        break;
-                    }
+            while (Date.now() < visibleUntil) {
+                if (this.canDigFromCurrentPosition(block, blockName)) {
+                    break;
                 }
 
-                if (!block || block.name !== blockName) {
-                    return { broken: false, reason: 'not_visible' };
-                }
+                await sleep(90);
+                block = this.bot.blockAt(pos);
+            }
 
-                if (!isBlockDiggable(block)) {
-                    return { broken: false, reason: 'not_diggable' };
-                }
+            if (!block || block.name !== blockName) {
+                return { broken: false, reason: 'not_visible' };
+            }
+
+            if (!this.canDigFromCurrentPosition(block, blockName)) {
+                return { broken: false, reason: 'not_diggable' };
             }
 
             try {
                 await this.equipPickaxe();
 
-                if (this.bot?.stopDigging) {
-                    try {
-                        this.bot.stopDigging();
-                    } catch (_) {
-                        // ignore stale dig state cleanup errors
-                    }
-
-                    await sleep(50);
-                }
-
-                await this.bot.lookAt(pos.offset(0.5, 0.5, 0.5), true);
-                if (preDigPause > 0) {
-                    await sleep(preDigPause);
-                }
+                this.haltProtectionMovement();
+                await this.ensureProtectionSneak();
 
                 block = this.bot.blockAt(pos);
                 if (!block || block.name !== blockName) {
-                    if (attempt >= breakRetryCount) {
-                        return { broken: false, reason: 'not_visible' };
-                    }
-                    if (breakRetryDelay > 0) {
-                        await sleep(breakRetryDelay);
-                    }
-                    continue;
+                    return { broken: false, reason: 'not_visible' };
                 }
 
-                if (!isBlockDiggable(block)) {
-                    if (attempt >= breakRetryCount) {
-                        return { broken: false, reason: 'not_diggable' };
-                    }
-                    if (breakRetryDelay > 0) {
-                        await sleep(breakRetryDelay);
-                    }
-                    continue;
+                if (!this.canDigFromCurrentPosition(block, blockName)) {
+                    return { broken: false, reason: 'not_diggable' };
                 }
 
-                await Promise.race([
-                    this.bot.dig(block, true, 'raycast'),
-                    sleep(digActionTimeout).then(() => {
-                        throw new Error('dig_timeout');
-                    })
-                ]);
+                await this.bot.dig(block);
             } catch (error) {
-                if (error.message === 'dig_timeout' && this.bot?.stopDigging) {
-                    try {
-                        this.bot.stopDigging();
-                    } catch (_) {
-                        // ignore
-                    }
-                }
-
                 if (attempt >= breakRetryCount) {
                     return {
                         broken: false,
-                        reason: error.message === 'dig_timeout' ? 'dig_timeout' : 'dig_error'
+                        reason: 'dig_error'
                     };
                 }
 
@@ -856,7 +860,6 @@ export class MinecraftBot {
             if (!verifyBlock || verifyBlock.name !== blockName) {
                 const reappearUntil = Date.now() + stackReappearConfirmMs;
                 while (Date.now() < reappearUntil) {
-                    await this.refreshProtectionView(pos);
                     await sleep(110);
 
                     verifyBlock = this.bot?.blockAt(pos);
@@ -872,51 +875,6 @@ export class MinecraftBot {
         }
 
         return { broken: false, reason: 'still_exists' };
-    }
-
-    async refreshProtectionView(referencePos) {
-        if (!this.bot || this.status !== 'online' || this.manualStopRequested || !referencePos) {
-            return;
-        }
-
-        const targetCenter = referencePos.offset(0.5, 0.5, 0.5);
-        const safeLookAt = async (lookTarget) => {
-            const bot = this.bot;
-            if (!bot || this.status !== 'online' || this.manualStopRequested) {
-                return false;
-            }
-
-            try {
-                await bot.lookAt(lookTarget, true);
-                return true;
-            } catch (_) {
-                return false;
-            }
-        };
-
-        if (!(await safeLookAt(targetCenter))) {
-            return;
-        }
-
-        const sweepTargets = [
-            targetCenter.offset(0.40, 0.12, 0),
-            targetCenter.offset(-0.40, -0.10, 0),
-            targetCenter.offset(0, 0.08, 0.40),
-            targetCenter.offset(0, -0.08, -0.40),
-            targetCenter
-        ];
-
-        for (const lookTarget of sweepTargets) {
-            if (!(await safeLookAt(lookTarget))) {
-                return;
-            }
-            await sleep(85);
-            if (!this.bot || this.status !== 'online' || this.manualStopRequested) {
-                return;
-            }
-        }
-
-        await safeLookAt(targetCenter);
     }
 
     async executeProtectionSimple() {
@@ -941,6 +899,8 @@ export class MinecraftBot {
         const requiredEmptyScans = Math.max(3, protectionConfig.requiredEmptyScans ?? 12);
         const postBreakDelay = Math.max(0, protectionConfig.postBreakDelay ?? 120);
         const maxStalledProtectionCycles = Math.max(20, protectionConfig.maxStalledProtectionCycles ?? 80);
+        const visibilityTimeout = Math.max(200, protectionConfig.visibilityTimeout ?? 1400);
+        const stackReappearConfirmMs = Math.max(250, protectionConfig.stackReappearConfirmMs ?? 1600);
 
         const notify = (message) => {
             if (this.onInventoryAlert) {
@@ -956,7 +916,7 @@ export class MinecraftBot {
         }
 
         this._protectionRunning = true;
-        this.bot.setControlState('sneak', true);
+        await this.ensureProtectionSneak();
         await this.equipPickaxe(true);
 
         logger.info(`[Spawner] Slot ${this.slot}: Normal protection mode started (afkset targets first).`);
@@ -966,8 +926,6 @@ export class MinecraftBot {
         let emptyScanCount = 0;
         let stalledCycles = 0;
         let completedByClearingTargets = false;
-        let lastBrokenPos = null;
-        let lastStackTargetPos = null;
 
         try {
             while (this.bot && this.status === 'online' && !this.manualStopRequested) {
@@ -988,6 +946,7 @@ export class MinecraftBot {
                 }
 
                 const scanRadius = Math.min(maxScanRadius, baseRadius + (emptyScanCount * scanRadiusStep));
+                const origin = this.getProtectionOrigin();
                 const savedTargets = this.getSavedSpawnerTargets(
                     blockName,
                     maxBlocksPerScan,
@@ -1002,28 +961,20 @@ export class MinecraftBot {
                     const scannedTargets = this.bot.findBlocks({
                         matching: (block) => block.name === blockName,
                         maxDistance: scanRadius,
-                        count: maxBlocksPerScan
+                        count: maxBlocksPerScan,
+                        ...(origin ? { point: origin } : {})
                     });
 
                     blocks = Array.isArray(scannedTargets) ? [...scannedTargets] : [];
                     targetSource = blocks.length > 0 ? `scan(r=${scanRadius})` : 'none';
                 }
 
-                if (blocks.length === 0 && lastStackTargetPos) {
-                    blocks = [lastStackTargetPos.clone ? lastStackTargetPos.clone() : lastStackTargetPos];
-                    targetSource = 'stack-fallback';
+                if (blocks.length > 1 && origin) {
+                    blocks.sort((a, b) => origin.distanceSquared(a) - origin.distanceSquared(b));
                 }
 
                 if (blocks.length === 0) {
                     emptyScanCount++;
-
-                    if (lastBrokenPos && emptyScanCount <= requiredEmptyScans) {
-                        logger.info(`[Spawner] Slot ${this.slot}: Hedef gorunmuyor, son kirilan bolgede gorus yenileniyor.`);
-                        await this.refreshProtectionView(lastBrokenPos);
-                        if (!this.bot || this.status !== 'online' || this.manualStopRequested) {
-                            break;
-                        }
-                    }
 
                     if (!noTargetSince) {
                         noTargetSince = Date.now();
@@ -1045,100 +996,91 @@ export class MinecraftBot {
                 noTargetSince = null;
                 emptyScanCount = 0;
 
-                const currentPos = this.bot?.entity?.position;
-                if (!currentPos) {
-                    await sleep(noTargetRescanDelay);
-                    continue;
-                }
+                let brokenInPass = 0;
+                let shouldExitLoop = false;
 
-                const reachableTargets = blocks
-                    .map(pos => {
-                        const block = this.bot?.blockAt(pos);
-                        let diggable = !!(block && block.name === blockName);
+                for (const targetPos of blocks) {
+                    if (!this.bot || this.status !== 'online' || this.manualStopRequested) {
+                        shouldExitLoop = true;
+                        break;
+                    }
 
-                        if (diggable && typeof this.bot?.canDigBlock === 'function') {
-                            try {
-                                diggable = this.bot.canDigBlock(block);
-                            } catch (_) {
-                                diggable = false;
-                            }
-                        }
+                    if (this.isInLobby) {
+                        shouldExitLoop = true;
+                        break;
+                    }
 
-                        return {
-                            pos,
-                            dist: currentPos.distanceTo(pos.offset(0.5, 0.5, 0.5)),
-                            diggable
-                        };
-                    })
-                    .filter(item => Number.isFinite(item.dist) && item.dist <= maxBreakReach)
-                    .sort((a, b) => {
-                        if (a.diggable !== b.diggable) {
-                            return a.diggable ? -1 : 1;
-                        }
+                    if (this.isEnemyNearby()) {
+                        logger.error(`Slot ${this.slot}: Enemy too close during protection, emergency stop.`);
+                        await this.stop();
+                        return;
+                    }
 
-                        return a.dist - b.dist;
+                    if (this.bot.inventory.emptySlotCount() <= 2) {
+                        logger.warn(`Slot ${this.slot}: Inventory nearly full, stopping protection.`);
+                        shouldExitLoop = true;
+                        break;
+                    }
+
+                    const currentPos = this.bot.entity?.position;
+                    if (!currentPos) {
+                        continue;
+                    }
+
+                    const distance = currentPos.distanceTo(targetPos.offset(0.5, 0.5, 0.5));
+                    if (!Number.isFinite(distance) || distance > maxBreakReach) {
+                        continue;
+                    }
+
+                    const block = this.bot.blockAt(targetPos);
+                    if (!this.canDigFromCurrentPosition(block, blockName)) {
+                        continue;
+                    }
+
+                    this.lastProtectionTargetPos = targetPos;
+
+                    const breakResult = await this.breakSpawnerNormally(targetPos, blockName, {
+                        verifyDelay: protectionConfig.verifyDelay,
+                        breakRetryCount: protectionConfig.breakRetryCount,
+                        breakRetryDelay: protectionConfig.breakRetryDelay,
+                        visibilityTimeout,
+                        stackReappearConfirmMs
                     });
 
-                if (reachableTargets.length === 0) {
-                    stalledCycles++;
-                    if (stalledCycles % 5 === 0) {
-                        logger.warn(`[Spawner] Slot ${this.slot}: ${blocks.length} hedef bulundu (${targetSource}) ama menzil disi.`);
+                    if (breakResult.broken && breakResult.reason === 'broken') {
+                        brokenInPass++;
+                        totalBroken++;
+                        this.stats.spawnersBroken++;
+
+                        const progressMsg = `[Spawner] Slot ${this.slot}: +1 spawner kirildi | Toplam: ${totalBroken}`;
+                        logger.info(progressMsg);
+                        notify(progressMsg);
+                    } else if (breakResult.reason === 'stack_remaining') {
+                        brokenInPass++;
+                    } else if (breakResult.reason === 'dig_error') {
+                        logger.warn(`[Spawner] Slot ${this.slot}: hedef kirilamadi reason=${breakResult.reason} (${targetPos.x},${targetPos.y},${targetPos.z})`);
                     }
-                    if (stalledCycles >= maxStalledProtectionCycles) {
-                        logger.warn(`Slot ${this.slot}: Protection stalled (out of reach) too long, stopping.`);
-                        break;
-                    }
-                    await sleep(noTargetRescanDelay);
-                    continue;
                 }
 
-                const targetPos = reachableTargets[0].pos;
-                this.lastProtectionTargetPos = targetPos;
+                if (shouldExitLoop) {
+                    break;
+                }
 
-                const breakResult = await this.breakSpawnerNormally(targetPos, blockName, {
-                    preDigPause: protectionConfig.preDigPause,
-                    verifyDelay: protectionConfig.verifyDelay,
-                    digActionTimeout: protectionConfig.digActionTimeout,
-                    breakRetryCount: protectionConfig.breakRetryCount,
-                    breakRetryDelay: protectionConfig.breakRetryDelay
-                });
-
-                if (breakResult.broken && breakResult.reason === 'broken') {
-                    totalBroken++;
-                    this.stats.spawnersBroken++;
-                    stalledCycles = 0;
-                    lastBrokenPos = targetPos.clone ? targetPos.clone() : targetPos;
-                    lastStackTargetPos = null;
-
-                    const progressMsg = `[Spawner] Slot ${this.slot}: +1 spawner kirildi | Toplam: ${totalBroken}`;
-                    logger.info(progressMsg);
-                    notify(progressMsg);
-
-                    await this.refreshProtectionView(targetPos);
-                    if (!this.bot || this.status !== 'online' || this.manualStopRequested) {
-                        break;
-                    }
-                } else if (breakResult.reason === 'stack_remaining') {
-                    stalledCycles = 0;
-                    lastBrokenPos = targetPos.clone ? targetPos.clone() : targetPos;
-                    lastStackTargetPos = targetPos.clone ? targetPos.clone() : targetPos;
-                    await this.refreshProtectionView(targetPos);
-                    if (!this.bot || this.status !== 'online' || this.manualStopRequested) {
-                        break;
-                    }
-                } else if (breakResult.broken && breakResult.reason === 'already_gone') {
-                    stalledCycles = 0;
-                    lastStackTargetPos = null;
-                } else {
+                if (brokenInPass === 0) {
                     stalledCycles++;
                     if (stalledCycles % 5 === 0) {
-                        logger.warn(`[Spawner] Slot ${this.slot}: hedef kirilamadi reason=${breakResult.reason} (${targetPos.x},${targetPos.y},${targetPos.z})`);
+                        logger.warn(`[Spawner] Slot ${this.slot}: Bu turda hic spawner kirilamadi (${targetSource}).`);
                     }
                     if (stalledCycles >= maxStalledProtectionCycles) {
                         logger.warn(`Slot ${this.slot}: Protection stalled too long, stopping.`);
                         break;
                     }
+
+                    await sleep(noTargetRescanDelay);
+                    continue;
                 }
+
+                stalledCycles = 0;
 
                 if (postBreakDelay > 0) {
                     await sleep(postBreakDelay);
